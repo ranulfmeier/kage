@@ -54,15 +54,12 @@ const tiers = [
       :class="isScrolled || mobileMenuOpen ? 'bg-white/95 backdrop-blur-md border-b border-kage-100' : 'bg-transparent'"
     >
       <div class="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-        <RouterLink to="/" class="flex items-center gap-3 group" @click="closeMobileMenu">
-          <span 
-            class="text-2xl font-japanese transition-colors duration-300"
-            :class="isScrolled || mobileMenuOpen ? 'text-kage-800' : 'text-kage-700'"
-          >影</span>
-          <span 
-            class="font-display font-bold transition-colors duration-300"
-            :class="isScrolled || mobileMenuOpen ? 'text-kage-800' : 'text-kage-700'"
-          >Kage</span>
+        <RouterLink to="/" class="flex items-center gap-2 group" @click="closeMobileMenu">
+          <img 
+            src="/kage_logo.png" 
+            alt="Kage" 
+            class="h-8 w-auto"
+          />
         </RouterLink>
         
         <!-- Mobile menu button -->
@@ -357,11 +354,8 @@ const tiers = [
       <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 sm:gap-8">
           <div class="flex items-center gap-4">
-            <span class="text-3xl sm:text-4xl font-japanese text-kage-800">影</span>
-            <div>
-              <p class="font-display font-bold text-kage-800">Kage</p>
-              <p class="text-xs sm:text-sm text-kage-400">Shadow Memory Protocol</p>
-            </div>
+            <img src="/kage_logo.png" alt="Kage" class="h-10 w-auto" />
+            <p class="text-xs sm:text-sm text-kage-400">Shadow Memory Protocol</p>
           </div>
 
           <div class="flex flex-wrap gap-4 sm:gap-8 text-sm text-kage-500">

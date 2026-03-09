@@ -70,9 +70,8 @@ const phases = [
     <!-- Header -->
     <header class="border-b border-kage-100 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
       <div class="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-        <RouterLink to="/" class="flex items-center gap-3 group">
-          <span class="text-2xl font-japanese text-kage-800 group-hover:text-accent-600 transition-colors">影</span>
-          <span class="font-display font-bold text-kage-800">Kage</span>
+        <RouterLink to="/" class="flex items-center gap-2 group">
+          <img src="/kage_logo.png" alt="Kage" class="h-8 w-auto" />
         </RouterLink>
         
         <!-- Mobile menu button -->
