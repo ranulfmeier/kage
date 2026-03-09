@@ -32,11 +32,12 @@ const socialLinks = [
       <div class="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
         <!-- Brand -->
         <div class="col-span-2 md:col-span-1">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-500 to-kage-400 flex items-center justify-center">
-              <span class="text-white text-xl font-bold">影</span>
-            </div>
-            <span class="text-xl font-bold">Kage</span>
+          <div class="flex items-center gap-2 mb-4">
+            <img 
+              src="/kage_logo.png" 
+              alt="Kage Logo" 
+              class="h-12 w-auto invert"
+            />
           </div>
           <p class="text-kage-300 text-sm leading-relaxed mb-6">
             Shadow Memory Protocol for Autonomous Agents. Privacy-first encrypted memory vault on Solana.

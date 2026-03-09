@@ -17,14 +17,13 @@ const navLinks = [
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-18 py-3">
         <!-- Logo -->
-        <a href="#" class="flex items-center gap-3 group">
-          <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-accent-500 to-kage-700 flex items-center justify-center shadow-lg shadow-accent-500/30 group-hover:shadow-accent-500/50 group-hover:scale-105 transition-all duration-300">
-            <span class="text-white text-xl font-japanese">影</span>
-          </div>
-          <div class="flex flex-col">
-            <span class="text-xl font-bold text-kage-800 font-display leading-tight">Kage</span>
-            <span class="text-xs text-kage-400 hidden sm:block">Shadow Memory</span>
-          </div>
+        <a href="#" class="flex items-center gap-2 group">
+          <img 
+            src="/kage_logo.png" 
+            alt="Kage Logo" 
+            class="h-12 w-auto group-hover:scale-105 transition-transform duration-300"
+          />
+          <span class="text-xs text-kage-400 hidden sm:block">Shadow Memory</span>
         </a>
 
         <!-- Desktop Nav -->
