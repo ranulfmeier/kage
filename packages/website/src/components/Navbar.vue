@@ -21,7 +21,7 @@ const navLinks = [
           <img 
             src="/kage_logo.png" 
             alt="Kage Logo" 
-            class="h-12 w-auto group-hover:scale-105 transition-transform duration-300"
+            class="h-14 sm:h-16 w-auto group-hover:scale-105 transition-transform duration-300"
           />
           <span class="text-xs text-kage-400 hidden sm:block">Shadow Memory</span>
         </a>

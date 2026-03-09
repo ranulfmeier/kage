@@ -36,7 +36,7 @@ const socialLinks = [
             <img 
               src="/kage_logo.png" 
               alt="Kage Logo" 
-              class="h-12 w-auto invert"
+              class="h-16 sm:h-20 w-auto invert"
             />
           </div>
           <p class="text-kage-300 text-sm leading-relaxed mb-6">

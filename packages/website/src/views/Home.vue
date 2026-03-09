@@ -58,7 +58,7 @@ const tiers = [
           <img 
             src="/kage_logo.png" 
             alt="Kage" 
-            class="h-8 w-auto"
+            class="h-12 sm:h-14 w-auto"
           />
         </RouterLink>
         
@@ -354,7 +354,7 @@ const tiers = [
       <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 sm:gap-8">
           <div class="flex items-center gap-4">
-            <img src="/kage_logo.png" alt="Kage" class="h-10 w-auto" />
+            <img src="/kage_logo.png" alt="Kage" class="h-14 sm:h-16 w-auto" />
             <p class="text-xs sm:text-sm text-kage-400">Shadow Memory Protocol</p>
           </div>
 

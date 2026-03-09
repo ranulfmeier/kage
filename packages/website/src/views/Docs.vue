@@ -47,7 +47,7 @@ const codeExample = [
     <header class="border-b border-kage-100 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
         <RouterLink to="/" class="flex items-center gap-2 group">
-          <img src="/kage_logo.png" alt="Kage" class="h-8 w-auto" />
+          <img src="/kage_logo.png" alt="Kage" class="h-12 sm:h-14 w-auto" />
         </RouterLink>
         
         <!-- Mobile menu button -->
