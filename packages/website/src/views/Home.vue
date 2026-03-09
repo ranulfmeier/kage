@@ -6,9 +6,18 @@ const isVisible = ref(false);
 const copied = ref(false);
 const contractAddress = ref('Coming Soon');
 const isScrolled = ref(false);
+const mobileMenuOpen = ref(false);
 
 function handleScroll() {
   isScrolled.value = window.scrollY > 50;
+}
+
+function toggleMobileMenu() {
+  mobileMenuOpen.value = !mobileMenuOpen.value;
+}
+
+function closeMobileMenu() {
+  mobileMenuOpen.value = false;
 }
 
 onMounted(() => {
@@ -42,21 +51,36 @@ const tiers = [
     <!-- Header -->
     <header 
       class="fixed top-0 left-0 right-0 z-50 transition-all duration-300"
-      :class="isScrolled ? 'bg-white/80 backdrop-blur-md border-b border-kage-100' : 'bg-transparent'"
+      :class="isScrolled || mobileMenuOpen ? 'bg-white/95 backdrop-blur-md border-b border-kage-100' : 'bg-transparent'"
     >
-      <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-        <RouterLink to="/" class="flex items-center gap-3 group">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+        <RouterLink to="/" class="flex items-center gap-3 group" @click="closeMobileMenu">
           <span 
             class="text-2xl font-japanese transition-colors duration-300"
-            :class="isScrolled ? 'text-kage-800' : 'text-kage-700'"
+            :class="isScrolled || mobileMenuOpen ? 'text-kage-800' : 'text-kage-700'"
           >影</span>
           <span 
             class="font-display font-bold transition-colors duration-300"
-            :class="isScrolled ? 'text-kage-800' : 'text-kage-700'"
+            :class="isScrolled || mobileMenuOpen ? 'text-kage-800' : 'text-kage-700'"
           >Kage</span>
         </RouterLink>
         
-        <nav class="flex items-center gap-8">
+        <!-- Mobile menu button -->
+        <button 
+          @click="toggleMobileMenu"
+          class="md:hidden p-2 rounded-lg transition-colors"
+          :class="isScrolled || mobileMenuOpen ? 'text-kage-700 hover:bg-kage-100' : 'text-kage-600 hover:bg-kage-100/50'"
+        >
+          <svg v-if="!mobileMenuOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          <svg v-else class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+
+        <!-- Desktop nav -->
+        <nav class="hidden md:flex items-center gap-8">
           <RouterLink 
             to="/docs" 
             class="text-sm font-medium transition-colors duration-300"
@@ -93,10 +117,50 @@ const tiers = [
           </a>
         </nav>
       </div>
+
+      <!-- Mobile menu -->
+      <div 
+        v-if="mobileMenuOpen"
+        class="md:hidden border-t border-kage-100 bg-white/95 backdrop-blur-md"
+      >
+        <nav class="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-4">
+          <RouterLink 
+            to="/docs" 
+            @click="closeMobileMenu"
+            class="text-base font-medium text-kage-700 hover:text-kage-900 py-2"
+          >
+            Docs
+          </RouterLink>
+          <RouterLink 
+            to="/roadmap" 
+            @click="closeMobileMenu"
+            class="text-base font-medium text-kage-700 hover:text-kage-900 py-2"
+          >
+            Roadmap
+          </RouterLink>
+          <a 
+            href="https://github.com/ranulfmeier/kage" 
+            target="_blank"
+            class="text-base font-medium text-kage-700 hover:text-kage-900 py-2"
+          >
+            GitHub
+          </a>
+          <a 
+            href="https://x.com/kage_agent" 
+            target="_blank"
+            class="flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-base font-medium bg-kage-900 text-white hover:bg-kage-800 mt-2"
+          >
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+            </svg>
+            Follow on X
+          </a>
+        </nav>
+      </div>
     </header>
 
     <!-- Hero Section -->
-    <section class="min-h-screen flex flex-col justify-center relative overflow-hidden">
+    <section class="min-h-screen flex flex-col justify-center relative overflow-hidden pt-20 md:pt-0">
       <!-- Ink wash background -->
       <div class="absolute inset-0 pointer-events-none">
         <div class="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-kage-100/50 to-transparent"></div>
@@ -105,24 +169,24 @@ const tiers = [
 
       <!-- Vertical Japanese text -->
       <div 
-        class="absolute right-8 md:right-16 top-1/2 -translate-y-1/2 writing-vertical hidden lg:block opacity-0"
+        class="absolute right-4 md:right-16 top-1/2 -translate-y-1/2 writing-vertical hidden lg:block opacity-0"
         :class="{ 'animate-fade-in': isVisible }"
         style="animation-delay: 1s"
       >
-        <span class="text-8xl font-japanese text-kage-100 tracking-widest">影の記憶</span>
+        <span class="text-6xl xl:text-8xl font-japanese text-kage-100 tracking-widest">影の記憶</span>
       </div>
 
-      <div class="max-w-6xl mx-auto px-6 lg:px-8 relative">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative">
         <div class="max-w-3xl">
           <!-- Brush stroke accent -->
           <div 
-            class="w-24 h-1 bg-gradient-to-r from-accent-500 to-transparent mb-12 opacity-0"
+            class="w-16 sm:w-24 h-1 bg-gradient-to-r from-accent-500 to-transparent mb-8 sm:mb-12 opacity-0"
             :class="{ 'animate-slide-in-left': isVisible }"
           ></div>
 
           <!-- Main title -->
           <h1 
-            class="text-5xl md:text-7xl lg:text-8xl font-display font-bold text-kage-900 leading-tight mb-8 opacity-0"
+            class="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-display font-bold text-kage-900 leading-tight mb-6 sm:mb-8 opacity-0"
             :class="{ 'animate-fade-in-up': isVisible }"
             style="animation-delay: 0.2s"
           >
@@ -132,7 +196,7 @@ const tiers = [
 
           <!-- Subtitle - haiku style -->
           <div 
-            class="space-y-2 text-xl md:text-2xl text-kage-500 mb-16 opacity-0"
+            class="space-y-1 sm:space-y-2 text-lg sm:text-xl md:text-2xl text-kage-500 mb-10 sm:mb-16 opacity-0"
             :class="{ 'animate-fade-in-up': isVisible }"
             style="animation-delay: 0.4s"
           >
@@ -143,14 +207,14 @@ const tiers = [
 
           <!-- CTA -->
           <div 
-            class="flex flex-col sm:flex-row gap-4 opacity-0"
+            class="flex flex-col sm:flex-row gap-3 sm:gap-4 opacity-0"
             :class="{ 'animate-fade-in-up': isVisible }"
             style="animation-delay: 0.6s"
           >
-            <RouterLink to="/docs" class="btn-primary text-lg">
+            <RouterLink to="/docs" class="btn-primary text-base sm:text-lg text-center">
               Read Documentation
             </RouterLink>
-            <a href="https://github.com/ranulfmeier/kage" target="_blank" class="btn-secondary text-lg">
+            <a href="https://github.com/ranulfmeier/kage" target="_blank" class="btn-secondary text-base sm:text-lg text-center">
               View Source
             </a>
           </div>
@@ -158,39 +222,39 @@ const tiers = [
       </div>
 
       <!-- Scroll indicator -->
-      <div class="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4">
+      <div class="absolute bottom-8 sm:bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4 hidden sm:flex">
         <span class="text-kage-400 text-sm tracking-widest uppercase">Scroll</span>
         <div class="w-px h-16 bg-gradient-to-b from-kage-300 to-transparent"></div>
       </div>
     </section>
 
     <!-- Token Section -->
-    <section class="py-32 relative">
-      <div class="max-w-6xl mx-auto px-6 lg:px-8">
+    <section class="py-16 sm:py-24 md:py-32 relative">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <!-- Section indicator -->
-        <div class="flex items-center gap-6 mb-20">
-          <span class="text-6xl font-japanese text-kage-200">壱</span>
+        <div class="flex items-center gap-4 sm:gap-6 mb-12 sm:mb-20">
+          <span class="text-4xl sm:text-6xl font-japanese text-kage-200">壱</span>
           <div>
-            <p class="text-sm text-kage-400 tracking-widest uppercase">Token</p>
-            <h2 class="text-3xl font-display font-bold text-kage-800">$KAGE</h2>
+            <p class="text-xs sm:text-sm text-kage-400 tracking-widest uppercase">Token</p>
+            <h2 class="text-2xl sm:text-3xl font-display font-bold text-kage-800">$KAGE</h2>
           </div>
         </div>
 
-        <div class="grid lg:grid-cols-2 gap-16 items-start">
+        <div class="grid lg:grid-cols-2 gap-10 lg:gap-16 items-start">
           <!-- Left: Contract -->
           <div>
-            <p class="text-lg text-kage-500 mb-8 leading-relaxed">
+            <p class="text-base sm:text-lg text-kage-500 mb-6 sm:mb-8 leading-relaxed">
               Hold $KAGE to access the protocol. No staking, no locking. Just hold tokens in your wallet.
             </p>
 
             <!-- Contract Address -->
-            <div class="border-l-2 border-accent-500 pl-6 mb-12">
+            <div class="border-l-2 border-accent-500 pl-4 sm:pl-6 mb-8 sm:mb-12">
               <p class="text-sm text-kage-400 mb-2">Contract Address</p>
               <div class="flex items-center gap-3">
-                <code class="text-kage-700 font-mono text-lg">{{ contractAddress }}</code>
+                <code class="text-kage-700 font-mono text-sm sm:text-lg break-all">{{ contractAddress }}</code>
                 <button 
                   @click="copyAddress"
-                  class="p-2 hover:bg-kage-100 rounded-lg transition-colors"
+                  class="p-2 hover:bg-kage-100 rounded-lg transition-colors flex-shrink-0"
                 >
                   <svg v-if="!copied" class="w-5 h-5 text-kage-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -203,7 +267,7 @@ const tiers = [
             </div>
 
             <!-- Links -->
-            <div class="flex gap-6 text-sm">
+            <div class="flex flex-wrap gap-4 sm:gap-6 text-sm">
               <a href="#" class="text-accent-600 hover:text-accent-700 transition-colors">pump.fun →</a>
               <a href="#" class="text-accent-600 hover:text-accent-700 transition-colors">Raydium →</a>
               <a href="#" class="text-accent-600 hover:text-accent-700 transition-colors">Birdeye →</a>
@@ -211,21 +275,21 @@ const tiers = [
           </div>
 
           <!-- Right: Tiers -->
-          <div class="space-y-4">
+          <div class="space-y-3 sm:space-y-4">
             <div 
               v-for="(tier, index) in tiers" 
               :key="tier.name"
-              class="flex items-center justify-between py-5 border-b border-kage-100 group hover:border-accent-300 transition-colors"
+              class="flex items-center justify-between py-4 sm:py-5 border-b border-kage-100 group hover:border-accent-300 transition-colors"
             >
-              <div class="flex items-center gap-4">
-                <span class="text-2xl font-japanese text-kage-300 group-hover:text-accent-500 transition-colors">
+              <div class="flex items-center gap-3 sm:gap-4">
+                <span class="text-xl sm:text-2xl font-japanese text-kage-300 group-hover:text-accent-500 transition-colors">
                   {{ tier.name.split(' ')[0] }}
                 </span>
-                <span class="text-kage-700 font-medium">{{ tier.name.split(' ')[1] }}</span>
+                <span class="text-kage-700 font-medium text-sm sm:text-base">{{ tier.name.split(' ')[1] }}</span>
               </div>
               <div class="text-right">
-                <span class="text-lg font-bold text-kage-800">{{ tier.kage }}</span>
-                <span class="text-kage-400 text-sm ml-1">$KAGE</span>
+                <span class="text-base sm:text-lg font-bold text-kage-800">{{ tier.kage }}</span>
+                <span class="text-kage-400 text-xs sm:text-sm ml-1">$KAGE</span>
                 <p class="text-xs text-kage-400">{{ tier.desc }}</p>
               </div>
             </div>
@@ -235,41 +299,41 @@ const tiers = [
     </section>
 
     <!-- Features Section -->
-    <section class="py-32 bg-kage-900 text-white relative overflow-hidden">
+    <section class="py-16 sm:py-24 md:py-32 bg-kage-900 text-white relative overflow-hidden">
       <!-- Pattern -->
       <div class="absolute inset-0 opacity-5">
         <div class="absolute inset-0" style="background-image: radial-gradient(circle at 1px 1px, white 1px, transparent 1px); background-size: 40px 40px;"></div>
       </div>
 
-      <div class="max-w-6xl mx-auto px-6 lg:px-8 relative">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative">
         <!-- Section indicator -->
-        <div class="flex items-center gap-6 mb-20">
-          <span class="text-6xl font-japanese text-kage-700">弐</span>
+        <div class="flex items-center gap-4 sm:gap-6 mb-12 sm:mb-20">
+          <span class="text-4xl sm:text-6xl font-japanese text-kage-700">弐</span>
           <div>
-            <p class="text-sm text-kage-500 tracking-widest uppercase">Core</p>
-            <h2 class="text-3xl font-display font-bold">Features</h2>
+            <p class="text-xs sm:text-sm text-kage-500 tracking-widest uppercase">Core</p>
+            <h2 class="text-2xl sm:text-3xl font-display font-bold">Features</h2>
           </div>
         </div>
 
         <!-- Features list - vertical layout -->
-        <div class="grid md:grid-cols-3 gap-px bg-kage-700">
-          <div class="bg-kage-900 p-8">
-            <div class="text-4xl font-japanese text-accent-400 mb-4">暗</div>
-            <h3 class="text-xl font-semibold mb-3">Client Encryption</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-px bg-kage-700">
+          <div class="bg-kage-900 p-6 sm:p-8">
+            <div class="text-3xl sm:text-4xl font-japanese text-accent-400 mb-3 sm:mb-4">暗</div>
+            <h3 class="text-lg sm:text-xl font-semibold mb-2 sm:mb-3">Client Encryption</h3>
             <p class="text-kage-400 text-sm leading-relaxed">
               AES-256-GCM encryption happens on your device. No plaintext ever leaves.
             </p>
           </div>
-          <div class="bg-kage-900 p-8">
-            <div class="text-4xl font-japanese text-accent-400 mb-4">鎖</div>
-            <h3 class="text-xl font-semibold mb-3">On-chain Commits</h3>
+          <div class="bg-kage-900 p-6 sm:p-8">
+            <div class="text-3xl sm:text-4xl font-japanese text-accent-400 mb-3 sm:mb-4">鎖</div>
+            <h3 class="text-lg sm:text-xl font-semibold mb-2 sm:mb-3">On-chain Commits</h3>
             <p class="text-kage-400 text-sm leading-relaxed">
               Cryptographic hashes on Solana. Verify integrity without exposing content.
             </p>
           </div>
-          <div class="bg-kage-900 p-8">
-            <div class="text-4xl font-japanese text-accent-400 mb-4">鍵</div>
-            <h3 class="text-xl font-semibold mb-3">Viewing Keys</h3>
+          <div class="bg-kage-900 p-6 sm:p-8">
+            <div class="text-3xl sm:text-4xl font-japanese text-accent-400 mb-3 sm:mb-4">鍵</div>
+            <h3 class="text-lg sm:text-xl font-semibold mb-2 sm:mb-3">Viewing Keys</h3>
             <p class="text-kage-400 text-sm leading-relaxed">
               Share access selectively. Grant and revoke permissions anytime.
             </p>
@@ -277,7 +341,7 @@ const tiers = [
         </div>
 
         <!-- CTA -->
-        <div class="mt-16 flex justify-center">
+        <div class="mt-10 sm:mt-16 flex justify-center">
           <RouterLink to="/docs" class="group flex items-center gap-3 text-kage-300 hover:text-white transition-colors">
             <span>Full documentation</span>
             <svg class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -289,18 +353,18 @@ const tiers = [
     </section>
 
     <!-- Footer -->
-    <footer class="py-16 border-t border-kage-100">
-      <div class="max-w-6xl mx-auto px-6 lg:px-8">
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-8">
+    <footer class="py-10 sm:py-16 border-t border-kage-100">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 sm:gap-8">
           <div class="flex items-center gap-4">
-            <span class="text-4xl font-japanese text-kage-800">影</span>
+            <span class="text-3xl sm:text-4xl font-japanese text-kage-800">影</span>
             <div>
               <p class="font-display font-bold text-kage-800">Kage</p>
-              <p class="text-sm text-kage-400">Shadow Memory Protocol</p>
+              <p class="text-xs sm:text-sm text-kage-400">Shadow Memory Protocol</p>
             </div>
           </div>
 
-          <div class="flex gap-8 text-sm text-kage-500">
+          <div class="flex flex-wrap gap-4 sm:gap-8 text-sm text-kage-500">
             <RouterLink to="/docs" class="hover:text-kage-800 transition-colors">Docs</RouterLink>
             <RouterLink to="/roadmap" class="hover:text-kage-800 transition-colors">Roadmap</RouterLink>
             <a href="https://github.com/ranulfmeier/kage" target="_blank" class="hover:text-kage-800 transition-colors">GitHub</a>
