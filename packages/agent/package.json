@@ -1,0 +1,26 @@
+{
+  "name": "@kage/agent",
+  "version": "0.1.0",
+  "description": "Kage Agent - Eliza-based autonomous agent with private memory",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint src/",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@kage/sdk": "workspace:*",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@solana/web3.js": "^1.95.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  }
+}

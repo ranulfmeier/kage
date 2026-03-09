@@ -1,0 +1,18 @@
+{
+  "name": "@kage/tests",
+  "version": "0.1.0",
+  "description": "Integration tests for Kage protocol",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
+  },
+  "devDependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@kage/sdk": "workspace:*",
+    "@solana/web3.js": "^1.95.0",
+    "@types/node": "^20.0.0",
+    "vitest": "^2.0.0"
+  }
+}

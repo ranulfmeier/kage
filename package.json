@@ -1,0 +1,35 @@
+{
+  "name": "kage",
+  "version": "0.1.0",
+  "description": "Shadow Memory Protocol for Autonomous Agents - Privacy-first AI agent memory vault on Solana",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "anchor:build": "anchor build",
+    "anchor:test": "anchor test",
+    "anchor:deploy": "anchor deploy",
+    "dev:agent": "pnpm --filter @kage/agent dev",
+    "dev:website": "pnpm --filter @kage/website dev",
+    "build:website": "pnpm --filter @kage/website build"
+  },
+  "keywords": [
+    "solana",
+    "privacy",
+    "ai-agent",
+    "memory-vault",
+    "umbra",
+    "eliza"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "dependencies": {
+    "dotenv": "^17.3.1"
+  }
+}
