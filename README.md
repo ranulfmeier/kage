@@ -65,7 +65,7 @@ Kage (影, "shadow" in Japanese) is a privacy-preserving memory protocol for aut
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/kage.git
+git clone https://github.com/ranulfmeier/kage.git
 cd kage
 
 # Install dependencies

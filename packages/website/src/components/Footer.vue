@@ -9,7 +9,7 @@ const links = {
   developers: [
     { name: "Documentation", href: "#" },
     { name: "SDK Reference", href: "#" },
-    { name: "GitHub", href: "https://github.com/your-org/kage" },
+    { name: "GitHub", href: "https://github.com/ranulfmeier/kage" },
     { name: "Examples", href: "#" },
   ],
   ecosystem: [
@@ -20,8 +20,8 @@ const links = {
 };
 
 const socialLinks = [
-  { name: "GitHub", href: "https://github.com/your-org/kage", icon: "github" },
-  { name: "Twitter", href: "https://twitter.com/kage_protocol", icon: "twitter" },
+  { name: "GitHub", href: "https://github.com/ranulfmeier/kage", icon: "github" },
+  { name: "Twitter", href: "https://x.com/kage_agent", icon: "twitter" },
   { name: "Discord", href: "#", icon: "discord" },
 ];
 </script>

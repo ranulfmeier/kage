@@ -72,7 +72,7 @@ const tiers = [
             Roadmap
           </RouterLink>
           <a 
-            href="https://github.com/your-org/kage" 
+            href="https://github.com/ranulfmeier/kage" 
             target="_blank"
             class="text-sm font-medium transition-colors duration-300"
             :class="isScrolled ? 'text-kage-600 hover:text-kage-900' : 'text-kage-500 hover:text-kage-800'"
@@ -80,7 +80,7 @@ const tiers = [
             GitHub
           </a>
           <a 
-            href="https://twitter.com" 
+            href="https://x.com/kage_agent" 
             target="_blank"
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300"
             :class="isScrolled 
@@ -150,7 +150,7 @@ const tiers = [
             <RouterLink to="/docs" class="btn-primary text-lg">
               Read Documentation
             </RouterLink>
-            <a href="https://github.com/your-org/kage" target="_blank" class="btn-secondary text-lg">
+            <a href="https://github.com/ranulfmeier/kage" target="_blank" class="btn-secondary text-lg">
               View Source
             </a>
           </div>
@@ -303,8 +303,8 @@ const tiers = [
           <div class="flex gap-8 text-sm text-kage-500">
             <RouterLink to="/docs" class="hover:text-kage-800 transition-colors">Docs</RouterLink>
             <RouterLink to="/roadmap" class="hover:text-kage-800 transition-colors">Roadmap</RouterLink>
-            <a href="https://github.com/your-org/kage" target="_blank" class="hover:text-kage-800 transition-colors">GitHub</a>
-            <a href="https://twitter.com/kaboratory" target="_blank" class="hover:text-kage-800 transition-colors">Twitter</a>
+            <a href="https://github.com/ranulfmeier/kage" target="_blank" class="hover:text-kage-800 transition-colors">GitHub</a>
+            <a href="https://x.com/kage_agent" target="_blank" class="hover:text-kage-800 transition-colors">Twitter</a>
           </div>
         </div>
       </div>

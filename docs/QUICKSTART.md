@@ -12,7 +12,7 @@ Get started with Kage in 5 minutes.
 
 ```bash
 # Clone and install
-git clone https://github.com/your-org/kage.git
+git clone https://github.com/ranulfmeier/kage.git
 cd kage
 pnpm install
 ```

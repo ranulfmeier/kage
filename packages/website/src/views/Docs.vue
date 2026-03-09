@@ -46,7 +46,7 @@ const codeExample = [
         </RouterLink>
         <nav class="flex items-center gap-6 text-sm">
           <RouterLink to="/roadmap" class="text-kage-500 hover:text-kage-800 transition-colors">Roadmap</RouterLink>
-          <a href="https://github.com/your-org/kage" target="_blank" class="text-kage-500 hover:text-kage-800 transition-colors">GitHub</a>
+          <a href="https://github.com/ranulfmeier/kage" target="_blank" class="text-kage-500 hover:text-kage-800 transition-colors">GitHub</a>
         </nav>
       </div>
     </header>

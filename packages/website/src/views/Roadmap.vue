@@ -73,7 +73,7 @@ const phases = [
         </RouterLink>
         <nav class="flex items-center gap-6 text-sm">
           <RouterLink to="/docs" class="text-kage-500 hover:text-kage-800 transition-colors">Docs</RouterLink>
-          <a href="https://github.com/your-org/kage" target="_blank" class="text-kage-500 hover:text-kage-800 transition-colors">GitHub</a>
+          <a href="https://github.com/ranulfmeier/kage" target="_blank" class="text-kage-500 hover:text-kage-800 transition-colors">GitHub</a>
         </nav>
       </div>
     </header>
@@ -166,7 +166,7 @@ const phases = [
       <div class="mt-24 text-center">
         <p class="text-kage-500 mb-6">Follow development progress</p>
         <a 
-          href="https://github.com/your-org/kage" 
+          href="https://github.com/ranulfmeier/kage" 
           target="_blank"
           class="inline-flex items-center gap-2 px-6 py-3 bg-kage-900 text-white rounded-lg hover:bg-kage-800 transition-colors"
         >
