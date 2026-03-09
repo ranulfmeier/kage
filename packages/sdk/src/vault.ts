@@ -23,6 +23,7 @@ import {
   EncryptedData,
   ViewingKey,
 } from "./encryption.js";
+import { KageUmbraClient, createUmbraClient } from "./umbra.js";
 
 const VAULT_SEED = Buffer.from("vault");
 const MEMORY_SEED = Buffer.from("memory");
@@ -109,12 +110,15 @@ export class KageVault {
   private storage: StorageAdapter;
   private ownerKeypair: Keypair;
   private viewingKey: ViewingKey | null = null;
+  private umbraClient: KageUmbraClient;
+  private umbraEnabled: boolean;
 
   constructor(
     connection: Connection,
     config: KageConfig,
     ownerKeypair: Keypair,
-    storage?: StorageAdapter
+    storage?: StorageAdapter,
+    options?: { umbraEnabled?: boolean }
   ) {
     this.connection = connection;
     this.config = config;
@@ -123,6 +127,11 @@ export class KageVault {
       network: config.umbraNetwork,
     });
     this.storage = storage || new MemoryStorageAdapter();
+    this.umbraEnabled = options?.umbraEnabled ?? true;
+    this.umbraClient = createUmbraClient(ownerKeypair, {
+      network: config.umbraNetwork,
+      rpcUrl: config.rpcUrl,
+    });
   }
 
   /**
@@ -132,6 +141,16 @@ export class KageVault {
     this.viewingKey = await this.encryption.generateViewingKey(
       this.ownerKeypair
     );
+
+    if (this.umbraEnabled) {
+      try {
+        await this.umbraClient.initialize();
+        await this.umbraClient.register();
+      } catch (err) {
+        console.warn("[Kage:Vault] Umbra initialization failed (continuing without privacy layer):", err);
+        this.umbraEnabled = false;
+      }
+    }
   }
 
   /**
@@ -173,7 +192,7 @@ export class KageVault {
   }
 
   /**
-   * Store a memory in the vault
+   * Store a memory in the vault with optional Umbra shielded proof
    */
   async storeMemory(
     data: unknown,
@@ -191,13 +210,24 @@ export class KageVault {
     );
     const cid = await this.storage.upload(encrypted);
     const metadataHash = await this.encryption.computeHash(metadata);
-
     const memoryTypeValue = this.memoryTypeToValue(memoryType);
+
+    // Generate Umbra shielded proof if privacy layer is available
+    let umbraProof: string | undefined;
+    if (this.umbraEnabled && this.umbraClient.isInitialized) {
+      try {
+        umbraProof = await this.umbraClient.createMemoryProof(cid, metadataHash);
+        console.log(`[Kage:Vault] Umbra proof created for memory: ${cid}`);
+      } catch (err) {
+        console.warn("[Kage:Vault] Umbra proof generation failed:", err);
+      }
+    }
 
     const txSignature = await this.sendStoreMemoryTransaction(
       cid,
       metadataHash,
-      memoryTypeValue
+      memoryTypeValue,
+      umbraProof
     );
 
     return {
@@ -339,12 +369,20 @@ export class KageVault {
   private async sendStoreMemoryTransaction(
     cid: string,
     metadataHash: Uint8Array,
-    memoryType: number
+    memoryType: number,
+    umbraProof?: string
   ): Promise<string> {
     console.log(
-      `[Kage] Storing memory: cid=${cid}, type=${memoryType}`
+      `[Kage] Storing memory: cid=${cid}, type=${memoryType}${umbraProof ? ", umbra=✓" : ""}`
     );
     return `simulated-tx-${Date.now()}`;
+  }
+
+  /**
+   * Get the underlying Umbra client for direct privacy layer access
+   */
+  getUmbraClient(): KageUmbraClient {
+    return this.umbraClient;
   }
 
   private async sendGrantAccessTransaction(
@@ -371,7 +409,8 @@ export function createVault(
   connection: Connection,
   config: KageConfig,
   ownerKeypair: Keypair,
-  storage?: StorageAdapter
+  storage?: StorageAdapter,
+  options?: { umbraEnabled?: boolean }
 ): KageVault {
-  return new KageVault(connection, config, ownerKeypair, storage);
+  return new KageVault(connection, config, ownerKeypair, storage, options);
 }

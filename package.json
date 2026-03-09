@@ -30,6 +30,8 @@
   },
   "packageManager": "pnpm@9.0.0",
   "dependencies": {
+    "@solana/addresses": "^6.1.0",
+    "@solana/kit": "^6.1.0",
     "dotenv": "^17.3.1"
   }
 }
