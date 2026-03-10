@@ -126,7 +126,10 @@ async function main() {
 
       try {
         const response = await agent.chat(text);
-        process.stdout.write(`\r${GREEN}  Kage ${RESET}${response}\n\n`);
+        process.stdout.write(`\r${GREEN}  Kage ${RESET}${response.text}\n\n`);
+        if (response.proof?.explorerUrl) {
+          print(`${DIM}  ↳ Solana: ${response.proof.explorerUrl}${RESET}`);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         process.stdout.write(`\r${RED}  Error: ${msg}${RESET}\n\n`);

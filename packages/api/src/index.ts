@@ -155,13 +155,16 @@ wss.on("connection", async (ws: WebSocket) => {
 
         ws.send(JSON.stringify({ type: "typing" }));
 
-        const reply = await agent.chat(userText);
+        const response = await agent.chat(userText);
+
+        console.log(`[Kage:API] chat response proof:`, JSON.stringify(response.proof));
 
         ws.send(
           JSON.stringify({
             type: "message",
             role: "assistant",
-            text: reply,
+            text: response.text,
+            proof: response.proof ?? null,
           })
         );
       }

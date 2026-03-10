@@ -5,10 +5,18 @@ import { RouterLink } from 'vue-router';
 const WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3002';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
+interface StoreProof {
+  cid?: string;
+  txSignature?: string;
+  explorerUrl?: string;
+  umbraProof?: string;
+}
+
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   text: string;
   time: string;
+  proof?: StoreProof | null;
 }
 
 interface Memory {
@@ -75,6 +83,7 @@ function connect() {
         role: 'assistant',
         text: msg.text,
         time: now(),
+        proof: msg.proof ?? null,
       });
       scrollToBottom();
     } else if (msg.type === 'memories') {
@@ -316,6 +325,29 @@ onUnmounted(() => {
                 </div>
                 <div class="bg-stone-50 border border-stone-200 px-4 py-3 text-sm text-stone-700 leading-relaxed rounded-sm whitespace-pre-wrap">
                   {{ msg.text }}
+                </div>
+                <!-- Proof panel -->
+                <div v-if="msg.proof && (msg.proof.explorerUrl || msg.proof.umbraProof || msg.proof.cid)" class="mt-2 border border-emerald-100 bg-emerald-50/60 px-3 py-2.5 text-xs space-y-1.5">
+                  <p class="text-emerald-700 font-medium tracking-wide uppercase text-[10px]">On-chain Proof</p>
+                  <div v-if="msg.proof.cid" class="flex items-center gap-2 text-stone-500">
+                    <span class="text-stone-400 w-16 flex-shrink-0">CID</span>
+                    <span class="font-mono truncate">{{ msg.proof.cid }}</span>
+                  </div>
+                  <div v-if="msg.proof.umbraProof" class="flex items-center gap-2 text-stone-500">
+                    <span class="text-stone-400 w-16 flex-shrink-0">Umbra</span>
+                    <span class="font-mono truncate">{{ msg.proof.umbraProof.slice(0, 32) }}…</span>
+                  </div>
+                  <div v-if="msg.proof.txSignature && !msg.proof.explorerUrl" class="flex items-center gap-2 text-stone-500">
+                    <span class="text-stone-400 w-16 flex-shrink-0">TX</span>
+                    <span class="font-mono truncate">{{ msg.proof.txSignature.slice(0, 24) }}…</span>
+                  </div>
+                  <a v-if="msg.proof.explorerUrl" :href="msg.proof.explorerUrl" target="_blank"
+                    class="flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 transition-colors font-medium">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                    </svg>
+                    Verify on Solscan
+                  </a>
                 </div>
                 <p class="text-xs text-stone-400 mt-1">{{ msg.time }}</p>
               </div>

@@ -17,6 +17,9 @@ export interface StoreMemoryResult {
   success: boolean;
   memoryId?: string;
   message: string;
+  txSignature?: string;
+  explorerUrl?: string;
+  umbraProof?: string;
 }
 
 /**
@@ -129,6 +132,9 @@ export async function executeStoreMemory(
       success: true,
       memoryId: result.memoryId,
       message: `Memory stored securely. ID: ${result.memoryId}`,
+      txSignature: result.txSignature,
+      explorerUrl: result.explorerUrl,
+      umbraProof: result.umbraProof,
     };
   }
 

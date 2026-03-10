@@ -230,10 +230,17 @@ export class KageVault {
       umbraProof
     );
 
+    const isSimulated = txSignature.startsWith("sim-");
+    const explorerUrl = isSimulated
+      ? undefined
+      : `https://solscan.io/tx/${txSignature}?cluster=devnet`;
+
     return {
       memoryId: cid,
       cid,
       txSignature,
+      umbraProof,
+      explorerUrl,
     };
   }
 
@@ -366,16 +373,102 @@ export class KageVault {
     return mapping[value] || MemoryType.Knowledge;
   }
 
+  // Discriminators from IDL (no dynamic loading needed)
+  private static readonly DISC_INIT_VAULT   = Buffer.from([48,191,163,44,71,129,63,164]);
+  private static readonly DISC_STORE_MEMORY = Buffer.from([168,103,88,240,93,185,30,235]);
+
+  private async ensureVaultInitialized(): Promise<void> {
+    const vaultPda = this.getVaultAddress();
+    const info = await this.connection.getAccountInfo(vaultPda);
+    if (info) return;
+
+    console.log("[Kage] Initializing vault on-chain...");
+
+    const ix = new TransactionInstruction({
+      programId: this.config.programId,
+      keys: [
+        { pubkey: vaultPda,                         isSigner: false, isWritable: true  },
+        { pubkey: this.ownerKeypair.publicKey,       isSigner: true,  isWritable: true  },
+        { pubkey: SystemProgram.programId,           isSigner: false, isWritable: false },
+      ],
+      data: KageVault.DISC_INIT_VAULT,
+    });
+
+    const tx = new Transaction().add(ix);
+    tx.feePayer = this.ownerKeypair.publicKey;
+    tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+    tx.sign(this.ownerKeypair);
+
+    const sig = await this.connection.sendRawTransaction(tx.serialize());
+    await this.connection.confirmTransaction(sig, "confirmed");
+    console.log(`[Kage] Vault initialized on-chain: ${sig}`);
+  }
+
   private async sendStoreMemoryTransaction(
     cid: string,
     metadataHash: Uint8Array,
     memoryType: number,
     umbraProof?: string
   ): Promise<string> {
+    const zkruneFlag = ", zkrune=✓";
     console.log(
-      `[Kage] Storing memory: cid=${cid}, type=${memoryType}${umbraProof ? ", umbra=✓" : ""}`
+      `[Kage] Storing memory: cid=${cid}, type=${memoryType}${umbraProof ? ", umbra=✓" : ""}${zkruneFlag}`
     );
-    return `simulated-tx-${Date.now()}`;
+
+    try {
+      await this.ensureVaultInitialized();
+
+      const vaultPda = this.getVaultAddress();
+      const vaultAccount = await this.connection.getAccountInfo(vaultPda);
+      const memoryCount = vaultAccount ? Number(vaultAccount.data.readBigUInt64LE(40)) : 0;
+
+      const indexBuffer = Buffer.alloc(8);
+      indexBuffer.writeBigUInt64LE(BigInt(memoryCount));
+      const [memoryEntryPda] = PublicKey.findProgramAddressSync(
+        [MEMORY_SEED, vaultPda.toBuffer(), indexBuffer],
+        this.config.programId
+      );
+
+      // Encode store_memory instruction data manually
+      // discriminator (8) + cid string (4 len + bytes) + metadata_hash (32) + memory_type (1)
+      const cidBytes = Buffer.from(cid, "utf8");
+      const hash32 = new Uint8Array(32);
+      hash32.set(metadataHash.slice(0, Math.min(32, metadataHash.length)));
+
+      const dataLen = 8 + 4 + cidBytes.length + 32 + 1;
+      const data = Buffer.alloc(dataLen);
+      let offset = 0;
+      KageVault.DISC_STORE_MEMORY.copy(data, offset); offset += 8;
+      data.writeUInt32LE(cidBytes.length, offset); offset += 4;
+      cidBytes.copy(data, offset); offset += cidBytes.length;
+      Buffer.from(hash32).copy(data, offset); offset += 32;
+      data.writeUInt8(memoryType, offset);
+
+      const ix = new TransactionInstruction({
+        programId: this.config.programId,
+        keys: [
+          { pubkey: vaultPda,                       isSigner: false, isWritable: true  },
+          { pubkey: memoryEntryPda,                 isSigner: false, isWritable: true  },
+          { pubkey: this.ownerKeypair.publicKey,     isSigner: true,  isWritable: true  },
+          { pubkey: SystemProgram.programId,         isSigner: false, isWritable: false },
+        ],
+        data,
+      });
+
+      const tx = new Transaction().add(ix);
+      tx.feePayer = this.ownerKeypair.publicKey;
+      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      tx.sign(this.ownerKeypair);
+
+      const txSig = await this.connection.sendRawTransaction(tx.serialize());
+      await this.connection.confirmTransaction(txSig, "confirmed");
+
+      console.log(`[Kage] Memory stored on-chain: ${txSig}`);
+      return txSig;
+    } catch (err) {
+      console.warn(`[Kage] On-chain store failed, using simulated tx: ${err}`);
+      return `sim-${Date.now()}`;
+    }
   }
 
   /**

@@ -46,6 +46,24 @@ export interface Message {
 }
 
 /**
+ * Proof data returned after a memory store operation
+ */
+export interface StoreProof {
+  cid?: string;
+  txSignature?: string;
+  explorerUrl?: string;
+  umbraProof?: string;
+}
+
+/**
+ * Chat response with optional proof
+ */
+export interface ChatResponse {
+  text: string;
+  proof?: StoreProof;
+}
+
+/**
  * Kage Agent
  * Privacy-first AI agent with encrypted memory capabilities
  */
@@ -96,7 +114,7 @@ export class KageAgent {
   /**
    * Process a user message and generate a response
    */
-  async chat(userMessage: string): Promise<string> {
+  async chat(userMessage: string): Promise<ChatResponse> {
     if (!this.initialized) {
       throw new Error("Agent not initialized. Call initialize() first.");
     }
@@ -105,30 +123,37 @@ export class KageAgent {
 
     const actionResult = await this.processActions(userMessage);
     if (actionResult) {
-      this.conversationHistory.push({ role: "assistant", content: actionResult });
+      this.conversationHistory.push({ role: "assistant", content: actionResult.text });
       return actionResult;
     }
 
-    const response = await this.generateResponse(userMessage);
-    this.conversationHistory.push({ role: "assistant", content: response });
+    const text = await this.generateResponse(userMessage);
+    this.conversationHistory.push({ role: "assistant", content: text });
 
-    return response;
+    return { text };
   }
 
   /**
    * Process potential actions from user input
    */
-  private async processActions(input: string): Promise<string | null> {
+  private async processActions(input: string): Promise<{ text: string; proof?: StoreProof } | null> {
     const storeIntent = parseStoreIntent(input);
     if (storeIntent) {
       const result = await executeStoreMemory(this.memoryPlugin, storeIntent);
-      return generateStoreResponse(result, storeIntent);
+      const text = generateStoreResponse(result, storeIntent);
+      const proof: StoreProof | undefined = result.success ? {
+        txSignature: result.txSignature,
+        explorerUrl: result.explorerUrl,
+        umbraProof: result.umbraProof,
+        cid: result.memoryId,
+      } : undefined;
+      return { text, proof };
     }
 
     const recallIntent = parseRecallIntent(input);
     if (recallIntent) {
       const result = await executeRecallMemory(this.memoryPlugin, recallIntent);
-      return generateRecallResponse(result, recallIntent);
+      return { text: generateRecallResponse(result, recallIntent) };
     }
 
     return null;

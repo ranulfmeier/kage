@@ -82,6 +82,12 @@ export interface StoreResult {
   cid: string;
   /** Solana transaction signature */
   txSignature: string;
+  /** Umbra shielded proof hash (if privacy layer active) */
+  umbraProof?: string;
+  /** zkRune ownership proof hash */
+  zkRuneProof?: string;
+  /** Solana explorer link */
+  explorerUrl?: string;
 }
 
 /**

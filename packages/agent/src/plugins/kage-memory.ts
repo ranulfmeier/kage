@@ -101,6 +101,9 @@ export class KageMemoryPlugin {
   async storeMemory(params: Record<string, unknown>): Promise<{
     success: boolean;
     memoryId?: string;
+    txSignature?: string;
+    explorerUrl?: string;
+    umbraProof?: string;
     error?: string;
   }> {
     if (!this.initialized || !this.vault) {
@@ -137,6 +140,9 @@ export class KageMemoryPlugin {
       return {
         success: true,
         memoryId: result.memoryId,
+        txSignature: result.txSignature,
+        explorerUrl: result.explorerUrl,
+        umbraProof: result.umbraProof,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
