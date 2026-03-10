@@ -79,6 +79,26 @@ app.get("/memories", async (_req, res) => {
   }
 });
 
+app.get("/tasks", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    const tasks = agent.listTasks();
+    res.json({
+      count: tasks.length,
+      tasks: tasks.map((t) => ({
+        taskId: t.taskId,
+        from: t.from.slice(0, 8) + "…",
+        to: t.to.slice(0, 8) + "…",
+        status: t.status,
+        explorerUrl: t.explorerUrl ?? null,
+        createdAt: new Date(t.createdAt).toLocaleTimeString(),
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // Single shared agent — persists across all WebSocket connections
 const sharedKeypair = loadOrCreateKeypair();
 let sharedAgent: KageAgent | null = null;
@@ -167,6 +187,36 @@ wss.on("connection", async (ws: WebSocket) => {
             proof: response.proof ?? null,
           })
         );
+      }
+
+      // Programmatic task delegation
+      if (msg.type === "delegate") {
+        const { recipientPubkey, instruction, context } = msg;
+        if (!recipientPubkey || !instruction) {
+          ws.send(JSON.stringify({ type: "error", message: "recipientPubkey and instruction are required" }));
+          return;
+        }
+
+        ws.send(JSON.stringify({ type: "typing" }));
+
+        const result = await agent.delegateTask({ recipientPubkey, instruction, context });
+
+        if (result.success && result.task) {
+          ws.send(JSON.stringify({
+            type: "task_created",
+            task: {
+              taskId: result.task.taskId,
+              from: result.task.from,
+              to: result.task.to,
+              status: result.task.status,
+              txSignature: result.task.txSignature ?? null,
+              explorerUrl: result.task.explorerUrl ?? null,
+              createdAt: result.task.createdAt,
+            },
+          }));
+        } else {
+          ws.send(JSON.stringify({ type: "error", message: result.error ?? "Delegation failed" }));
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";

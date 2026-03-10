@@ -1,4 +1,4 @@
-import { Keypair, Connection } from "@solana/web3.js";
+import { Keypair, Connection, PublicKey } from "@solana/web3.js";
 import Anthropic from "@anthropic-ai/sdk";
 import {
   KageMemoryPlugin,
@@ -9,6 +9,12 @@ import {
   KagePrivacyPlugin,
   createKagePrivacyPlugin,
 } from "./plugins/kage-privacy.js";
+import {
+  KageDelegationPlugin,
+  createKageDelegationPlugin,
+  DelegateTaskParams,
+} from "./plugins/kage-delegation.js";
+import { DelegationTask, DelegationEngine } from "@kage/sdk";
 import {
   KageCharacter,
   AgentCharacter,
@@ -46,13 +52,16 @@ export interface Message {
 }
 
 /**
- * Proof data returned after a memory store operation
+ * Proof data returned after a memory store or delegation operation
  */
 export interface StoreProof {
   cid?: string;
   txSignature?: string;
   explorerUrl?: string;
   umbraProof?: string;
+  /** Delegation-specific fields */
+  taskId?: string;
+  delegatedTo?: string;
 }
 
 /**
@@ -73,6 +82,7 @@ export class KageAgent {
   private character: AgentCharacter;
   private memoryPlugin: KageMemoryPlugin;
   private privacyPlugin: KagePrivacyPlugin;
+  private delegationPlugin: KageDelegationPlugin;
   private anthropic: Anthropic;
   private conversationHistory: Message[] = [];
   private initialized = false;
@@ -95,6 +105,10 @@ export class KageAgent {
 
     this.memoryPlugin = createKageMemoryPlugin(pluginConfig);
     this.privacyPlugin = createKagePrivacyPlugin(pluginConfig);
+    this.delegationPlugin = createKageDelegationPlugin({
+      rpcUrl: config.rpcUrl,
+      programId: config.programId,
+    });
     this.anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
   }
 
@@ -106,6 +120,7 @@ export class KageAgent {
 
     await this.memoryPlugin.initialize(this.keypair);
     await this.privacyPlugin.initialize(this.keypair);
+    await this.delegationPlugin.initialize(this.keypair);
 
     this.initialized = true;
     console.log("[Kage] Agent initialized successfully");
@@ -154,6 +169,26 @@ export class KageAgent {
     if (recallIntent) {
       const result = await executeRecallMemory(this.memoryPlugin, recallIntent);
       return { text: generateRecallResponse(result, recallIntent) };
+    }
+
+    // Delegation intent: "delegate <instruction> to <pubkey>"
+    const delegateMatch = input.match(/delegate\s+(.+?)\s+to\s+([1-9A-HJ-NP-Za-km-z]{32,44})/i);
+    if (delegateMatch) {
+      const instruction = delegateMatch[1].trim();
+      const recipientPubkey = delegateMatch[2].trim();
+      const result = await this.delegationPlugin.delegateTask({ recipientPubkey, instruction });
+      if (result.success && result.task) {
+        const task = result.task;
+        const text = `✓ Task delegated to ${task.to.slice(0, 8)}… with shielded encryption.\nTask ID: ${task.taskId}\nStatus: ${task.status}${task.explorerUrl ? `\nCommitted on-chain: ${task.explorerUrl}` : ""}`;
+        const proof: StoreProof = {
+          taskId: task.taskId,
+          delegatedTo: task.to,
+          txSignature: task.txSignature,
+          explorerUrl: task.explorerUrl,
+        };
+        return { text, proof };
+      }
+      return { text: `Task delegation failed: ${result.error}` };
     }
 
     return null;
@@ -227,6 +262,27 @@ export class KageAgent {
    */
   getPrivacyPlugin(): KagePrivacyPlugin {
     return this.privacyPlugin;
+  }
+
+  /**
+   * Get delegation plugin for direct access
+   */
+  getDelegationPlugin(): KageDelegationPlugin {
+    return this.delegationPlugin;
+  }
+
+  /**
+   * Delegate a task to another agent (programmatic access)
+   */
+  async delegateTask(params: DelegateTaskParams) {
+    return this.delegationPlugin.delegateTask(params);
+  }
+
+  /**
+   * List all delegation tasks
+   */
+  listTasks(): DelegationTask[] {
+    return this.delegationPlugin.listTasks();
   }
 }
 

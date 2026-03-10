@@ -5,11 +5,15 @@ import { RouterLink } from 'vue-router';
 const WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3002';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
+type ActiveTab = 'chat' | 'delegation';
+
 interface StoreProof {
   cid?: string;
   txSignature?: string;
   explorerUrl?: string;
   umbraProof?: string;
+  taskId?: string;
+  delegatedTo?: string;
 }
 
 interface ChatMessage {
@@ -26,6 +30,17 @@ interface Memory {
   time: string;
 }
 
+interface DelegationTaskUI {
+  taskId: string;
+  from: string;
+  to: string;
+  status: string;
+  txSignature?: string;
+  explorerUrl?: string;
+  createdAt: number;
+}
+
+const activeTab = ref<ActiveTab>('chat');
 const messages = ref<ChatMessage[]>([]);
 const input = ref('');
 const isConnected = ref(false);
@@ -35,6 +50,12 @@ const memories = ref<Memory[]>([]);
 const showMemories = ref(false);
 const messagesEl = ref<HTMLElement | null>(null);
 const mobileMenuOpen = ref(false);
+
+// Delegation state
+const delegTasks = ref<DelegationTaskUI[]>([]);
+const delegRecipient = ref('');
+const delegInstruction = ref('');
+const isDelegating = ref(false);
 
 let ws: WebSocket | null = null;
 
@@ -89,7 +110,11 @@ function connect() {
     } else if (msg.type === 'memories') {
       memories.value = msg.memories;
       showMemories.value = true;
+    } else if (msg.type === 'task_created') {
+      isDelegating.value = false;
+      delegTasks.value.unshift(msg.task as DelegationTaskUI);
     } else if (msg.type === 'error') {
+      isDelegating.value = false;
       isTyping.value = false;
       messages.value.push({
         role: 'system',
@@ -171,6 +196,35 @@ async function fetchMemories() {
 function useSuggestion(s: string) {
   input.value = s;
   send();
+}
+
+async function fetchTasks() {
+  try {
+    const res = await fetch(`${API_URL}/tasks`);
+    const data = await res.json();
+    delegTasks.value = data.tasks || [];
+  } catch {
+    delegTasks.value = [];
+  }
+}
+
+function sendDelegate() {
+  if (!delegRecipient.value.trim() || !delegInstruction.value.trim()) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+  isDelegating.value = true;
+  ws.send(JSON.stringify({
+    type: 'delegate',
+    recipientPubkey: delegRecipient.value.trim(),
+    instruction: delegInstruction.value.trim(),
+  }));
+}
+
+function statusColor(status: string) {
+  return status === 'completed' ? 'text-emerald-600'
+    : status === 'accepted' ? 'text-sky-600'
+    : status === 'failed' ? 'text-red-500'
+    : 'text-amber-600';
 }
 
 onMounted(() => {
@@ -255,9 +309,27 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- Tab bar -->
+      <div class="flex gap-0 border border-stone-200 mb-4 w-fit">
+        <button
+          @click="activeTab = 'chat'"
+          class="px-5 py-2 text-xs tracking-widest uppercase transition-colors"
+          :class="activeTab === 'chat' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
+        >
+          Memory Vault
+        </button>
+        <button
+          @click="activeTab = 'delegation'; fetchTasks()"
+          class="px-5 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200"
+          :class="activeTab === 'delegation' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
+        >
+          Task Delegation
+        </button>
+      </div>
+
       <!-- Memory Panel -->
       <div
-        v-if="showMemories"
+        v-if="showMemories && activeTab === 'chat'"
         class="mb-4 border border-stone-200 bg-white/60 rounded-sm p-4"
       >
         <p class="text-xs tracking-widest uppercase text-stone-400 mb-3">Encrypted Vault</p>
@@ -276,8 +348,8 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Chat Window -->
-      <div class="border border-stone-200 bg-white/70 rounded-sm overflow-hidden">
+      <!-- ── CHAT TAB ── -->
+      <div v-if="activeTab === 'chat'" class="border border-stone-200 bg-white/70 rounded-sm overflow-hidden">
 
         <!-- Messages -->
         <div
@@ -387,10 +459,102 @@ onUnmounted(() => {
             </button>
           </div>
           <p class="text-xs text-stone-400 mt-2">
-            Try <span class="font-mono text-stone-500">/memories</span> to view your encrypted vault
+            Try <span class="font-mono text-stone-500">/memories</span> · or: <span class="font-mono text-stone-500">delegate &lt;task&gt; to &lt;pubkey&gt;</span>
           </p>
         </div>
+      </div>
 
+      <!-- ── DELEGATION TAB ── -->
+      <div v-if="activeTab === 'delegation'" class="space-y-4">
+
+        <!-- Compose form -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <p class="text-xs tracking-widest uppercase text-stone-400">New Shielded Task</p>
+
+          <div class="space-y-1">
+            <label class="text-xs text-stone-500 tracking-wide">Recipient Agent Pubkey</label>
+            <input
+              v-model="delegRecipient"
+              placeholder="Solana public key…"
+              class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-xs font-mono text-stone-700 outline-none focus:border-stone-400 transition-colors"
+              :disabled="!isConnected"
+            />
+          </div>
+
+          <div class="space-y-1">
+            <label class="text-xs text-stone-500 tracking-wide">Task Instruction</label>
+            <textarea
+              v-model="delegInstruction"
+              placeholder="Analyze portfolio and suggest rebalancing…"
+              rows="3"
+              class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 outline-none focus:border-stone-400 transition-colors resize-none"
+              :disabled="!isConnected"
+              style="font-family: inherit;"
+            ></textarea>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button
+              @click="sendDelegate"
+              :disabled="!isConnected || !delegRecipient.trim() || !delegInstruction.trim() || isDelegating"
+              class="px-6 py-2.5 bg-stone-800 text-stone-100 text-xs tracking-widest uppercase hover:bg-stone-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              {{ isDelegating ? 'Delegating…' : 'Delegate Task' }}
+            </button>
+            <p class="text-xs text-stone-400">Payload encrypted before transmission</p>
+          </div>
+        </div>
+
+        <!-- Task list -->
+        <div class="border border-stone-200 bg-white/70 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <p class="text-xs tracking-widest uppercase text-stone-400">Active Tasks</p>
+            <button @click="fetchTasks" class="text-xs text-stone-400 hover:text-stone-700 uppercase tracking-widest transition-colors">Refresh</button>
+          </div>
+
+          <div v-if="delegTasks.length === 0" class="text-sm text-stone-400 italic text-center py-8">
+            No tasks delegated yet.
+          </div>
+
+          <div v-else class="space-y-3">
+            <div
+              v-for="t in delegTasks"
+              :key="t.taskId"
+              class="border border-stone-100 p-3 space-y-2"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <span class="font-mono text-xs text-stone-600">{{ t.taskId.slice(0, 24) }}…</span>
+                <span class="text-xs font-medium" :class="statusColor(t.status)">{{ t.status }}</span>
+              </div>
+              <div class="flex gap-4 text-xs text-stone-400">
+                <span>From: <span class="font-mono text-stone-600">{{ t.from }}</span></span>
+                <span>→ To: <span class="font-mono text-stone-600">{{ t.to }}</span></span>
+              </div>
+              <a
+                v-if="t.explorerUrl"
+                :href="t.explorerUrl"
+                target="_blank"
+                class="flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-700 transition-colors font-medium w-fit"
+              >
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
+                Verify on Solscan
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="border border-stone-100 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">How Shielded Delegation Works</p>
+          <ol class="space-y-2 text-xs text-stone-500 list-decimal list-inside leading-relaxed">
+            <li>Task payload is encrypted with a shared secret derived from both agents' keypairs</li>
+            <li>Only the payload hash is committed on-chain (Solana Memo program)</li>
+            <li>Recipient agent decrypts and executes the task off-chain</li>
+            <li>Result is encrypted back — neither payload nor result is visible on-chain</li>
+          </ol>
+        </div>
       </div>
 
       <!-- Info Row -->
