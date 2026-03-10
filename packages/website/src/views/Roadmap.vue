@@ -21,18 +21,18 @@ const phases = [
   {
     number: '弐',
     name: 'Privacy Layer',
-    status: 'next',
+    status: 'done',
     items: [
-      { text: 'Umbra SDK integration', done: false },
-      { text: 'Confidential SPL balances', done: false },
-      { text: 'Zero-knowledge proofs', done: false },
-      { text: 'Private metadata fields', done: false },
+      { text: 'Umbra SDK integration', done: true },
+      { text: 'Shielded memory proofs', done: true },
+      { text: 'zkRune ownership proofs', done: true },
+      { text: 'On-chain verification via Solscan', done: true },
     ],
   },
   {
     number: '参',
     name: 'Multi-Agent',
-    status: 'future',
+    status: 'current',
     items: [
       { text: 'Shielded task delegation', done: false },
       { text: 'Private payment channels', done: false },
@@ -124,6 +124,7 @@ const phases = [
             <div 
               class="absolute left-6 sm:left-8 md:left-1/2 -translate-x-1/2 w-12 h-12 sm:w-16 sm:h-16 rounded-full flex items-center justify-center text-xl sm:text-2xl font-japanese"
               :class="{
+                'bg-green-500 text-white shadow-lg shadow-green-500/30': phase.status === 'done',
                 'bg-accent-500 text-white shadow-lg shadow-accent-500/30': phase.status === 'current',
                 'bg-kage-100 text-kage-500': phase.status === 'next',
                 'bg-kage-50 text-kage-300': phase.status === 'future',
@@ -143,6 +144,12 @@ const phases = [
               >
                 <!-- Phase header -->
                 <div class="mb-3 sm:mb-4">
+                  <span
+                    v-if="phase.status === 'done'"
+                    class="inline-block px-2 sm:px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full mb-2"
+                  >
+                    Shipped ✓
+                  </span>
                   <span 
                     v-if="phase.status === 'current'"
                     class="inline-block px-2 sm:px-3 py-1 bg-accent-100 text-accent-600 text-xs font-semibold rounded-full mb-2"
