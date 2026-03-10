@@ -1,0 +1,11 @@
+{
+  "$schema": "https://railway.app/railway-schema/latest",
+  "build": {
+    "builder": "nixpacks",
+    "buildCommand": "pnpm install --no-frozen-lockfile && pnpm --filter @kage/sdk build && pnpm --filter @kage/agent build && pnpm --filter @kage/api build"
+  },
+  "deploy": {
+    "startCommand": "pnpm --filter @kage/api start",
+    "restartPolicyType": "on-failure"
+  }
+}
