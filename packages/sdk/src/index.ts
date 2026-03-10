@@ -3,3 +3,4 @@ export * from "./vault.js";
 export * from "./encryption.js";
 export * from "./tiers.js";
 export * from "./umbra.js";
+export * from "./zkViewingKey.js";
