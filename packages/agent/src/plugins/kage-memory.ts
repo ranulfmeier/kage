@@ -36,6 +36,7 @@ export class KageMemoryPlugin {
   private config: KageMemoryPluginConfig;
   private keypair: Keypair | null = null;
   private initialized = false;
+  private memoryCache: MemoryEntry[] = [];
 
   readonly name = "kage-memory";
   readonly description = "Privacy-first encrypted memory storage for AI agents";
@@ -124,6 +125,15 @@ export class KageMemoryPlugin {
 
       console.log(`[KageMemory] Memory stored: ${result.memoryId}`);
 
+      this.memoryCache.push({
+        id: result.memoryId,
+        cid: result.cid,
+        metadataHash: "",
+        createdAt: Date.now(),
+        memoryType: type,
+        owner: this.keypair!.publicKey,
+      });
+
       return {
         success: true,
         memoryId: result.memoryId,
@@ -178,10 +188,8 @@ export class KageMemoryPlugin {
     }
 
     try {
-      const memories = await this.vault.listMemories();
-
+      const memories = this.memoryCache;
       console.log(`[KageMemory] Listed ${memories.length} memories`);
-
       return { success: true, memories };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";

@@ -30,3 +30,6 @@ coverage/
 
 # Solana
 test-ledger/
+
+# Agent keypairs (contain private keys)
+agent-keypair.json

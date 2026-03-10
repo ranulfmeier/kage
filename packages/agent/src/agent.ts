@@ -183,6 +183,14 @@ export class KageAgent {
   }
 
   /**
+   * List all stored memories
+   */
+  async listMemories() {
+    const result = await this.memoryPlugin.listMemories({});
+    return result.memories ?? [];
+  }
+
+  /**
    * Get memory plugin for direct access
    */
   getMemoryPlugin(): KageMemoryPlugin {

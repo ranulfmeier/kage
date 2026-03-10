@@ -100,6 +100,15 @@ const tiers = [
           >
             GitHub
           </a>
+          <RouterLink
+            to="/demo"
+            class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300"
+            :class="isScrolled 
+              ? 'bg-kage-900 text-white hover:bg-kage-800' 
+              : 'bg-kage-800/10 text-kage-700 hover:bg-kage-800/20'"
+          >
+            Try Demo
+          </RouterLink>
           <a 
             href="https://x.com/kage_agent" 
             target="_blank"
@@ -208,12 +217,12 @@ const tiers = [
             :class="{ 'animate-fade-in-up': isVisible }"
             style="animation-delay: 0.6s"
           >
-            <RouterLink to="/docs" class="btn-primary text-base sm:text-lg text-center">
-              Read Documentation
+            <RouterLink to="/demo" class="btn-primary text-base sm:text-lg text-center">
+              Try Live Demo
             </RouterLink>
-            <a href="https://github.com/ranulfmeier/kage" target="_blank" class="btn-secondary text-base sm:text-lg text-center">
-              View Source
-            </a>
+            <RouterLink to="/docs" class="btn-secondary text-base sm:text-lg text-center">
+              Documentation
+            </RouterLink>
           </div>
         </div>
       </div>
