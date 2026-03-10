@@ -231,6 +231,10 @@ wss.on("connection", async (ws: WebSocket) => {
         ws.send(JSON.stringify({ type: "typing" }));
         const result = await agent.sendMessage({ recipientPubkey, recipientX25519Pub, text });
         if (result.success && result.message) {
+          // If sending to self (or same agent), auto-deliver to inbox
+          if (result.message.to === sharedKeypair.publicKey.toBase58()) {
+            agent.deliverToInbox(result.message);
+          }
           ws.send(JSON.stringify({ type: "message_sent", message: {
             messageId: result.message.messageId,
             to: result.message.to,
