@@ -33,3 +33,9 @@ test-ledger/
 
 # Agent keypairs (contain private keys)
 agent-keypair.json
+
+# Test / scratch files
+test-*.ts
+test-*.mjs
+*.test.ts
+*.spec.ts

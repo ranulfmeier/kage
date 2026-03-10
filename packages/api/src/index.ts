@@ -79,6 +79,38 @@ app.get("/memories", async (_req, res) => {
   }
 });
 
+app.get("/agent/x25519", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    res.json({
+      solanaPubkey: sharedKeypair.publicKey.toBase58(),
+      x25519PublicKey: agent.getX25519PublicKey(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/inbox", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    const messages = agent.getInbox();
+    res.json({
+      count: messages.length,
+      unread: agent.getUnreadMessages().length,
+      messages: messages.map((m) => ({
+        messageId: m.messageId,
+        from: m.from.slice(0, 8) + "…",
+        sentAt: new Date(m.sentAt).toLocaleTimeString(),
+        read: m.read,
+        explorerUrl: m.explorerUrl ?? null,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 app.get("/tasks", async (_req, res) => {
   try {
     const agent = await getAgent();
@@ -187,6 +219,39 @@ wss.on("connection", async (ws: WebSocket) => {
             proof: response.proof ?? null,
           })
         );
+      }
+
+      // Send encrypted message to another agent
+      if (msg.type === "send_message") {
+        const { recipientPubkey, recipientX25519Pub, text } = msg;
+        if (!recipientPubkey || !recipientX25519Pub || !text) {
+          ws.send(JSON.stringify({ type: "error", message: "recipientPubkey, recipientX25519Pub, and text are required" }));
+          return;
+        }
+        ws.send(JSON.stringify({ type: "typing" }));
+        const result = await agent.sendMessage({ recipientPubkey, recipientX25519Pub, text });
+        if (result.success && result.message) {
+          ws.send(JSON.stringify({ type: "message_sent", message: {
+            messageId: result.message.messageId,
+            to: result.message.to,
+            sentAt: result.message.sentAt,
+            explorerUrl: result.message.explorerUrl ?? null,
+          }}));
+        } else {
+          ws.send(JSON.stringify({ type: "error", message: result.error ?? "Send failed" }));
+        }
+      }
+
+      // Deliver a received message to this agent's inbox (simulates transport)
+      if (msg.type === "deliver_message") {
+        const { encryptedMessage } = msg;
+        if (!encryptedMessage) {
+          ws.send(JSON.stringify({ type: "error", message: "encryptedMessage is required" }));
+          return;
+        }
+        agent.deliverToInbox(encryptedMessage);
+        const content = agent.receiveMessage(encryptedMessage);
+        ws.send(JSON.stringify({ type: "message_received", content, messageId: encryptedMessage.messageId }));
       }
 
       // Programmatic task delegation

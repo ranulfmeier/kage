@@ -14,7 +14,11 @@ import {
   createKageDelegationPlugin,
   DelegateTaskParams,
 } from "./plugins/kage-delegation.js";
-import { DelegationTask, DelegationEngine } from "@kage/sdk";
+import {
+  KageMessagingPlugin,
+  createKageMessagingPlugin,
+} from "./plugins/kage-messaging.js";
+import { DelegationTask, DelegationEngine, AgentMessage, MessageContent } from "@kage/sdk";
 import {
   KageCharacter,
   AgentCharacter,
@@ -83,6 +87,7 @@ export class KageAgent {
   private memoryPlugin: KageMemoryPlugin;
   private privacyPlugin: KagePrivacyPlugin;
   private delegationPlugin: KageDelegationPlugin;
+  private messagingPlugin: KageMessagingPlugin;
   private anthropic: Anthropic;
   private conversationHistory: Message[] = [];
   private initialized = false;
@@ -109,6 +114,9 @@ export class KageAgent {
       rpcUrl: config.rpcUrl,
       programId: config.programId,
     });
+    this.messagingPlugin = createKageMessagingPlugin({
+      rpcUrl: config.rpcUrl,
+    });
     this.anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
   }
 
@@ -121,6 +129,7 @@ export class KageAgent {
     await this.memoryPlugin.initialize(this.keypair);
     await this.privacyPlugin.initialize(this.keypair);
     await this.delegationPlugin.initialize(this.keypair);
+    await this.messagingPlugin.initialize(this.keypair);
 
     this.initialized = true;
     console.log("[Kage] Agent initialized successfully");
@@ -169,6 +178,27 @@ export class KageAgent {
     if (recallIntent) {
       const result = await executeRecallMemory(this.memoryPlugin, recallIntent);
       return { text: generateRecallResponse(result, recallIntent) };
+    }
+
+    // Messaging intent: "message <pubkey> <x25519pub>: <text>"  or  "send message to <pubkey>: <text>"
+    const msgMatch = input.match(/(?:message|send(?:\s+message)?(?:\s+to)?)\s+([1-9A-HJ-NP-Za-km-z]{32,44})(?:\s+([A-Za-z0-9+/=]{40,}))?[:\s]+(.+)/i);
+    if (msgMatch) {
+      const recipientPubkey = msgMatch[1].trim();
+      const recipientX25519Pub = msgMatch[2]?.trim() ?? "";
+      const text = msgMatch[3].trim();
+      if (recipientX25519Pub) {
+        const result = await this.messagingPlugin.sendMessage({ recipientPubkey, recipientX25519Pub, text });
+        if (result.success && result.message) {
+          const proof: StoreProof = {
+            txSignature: result.message.txSignature,
+            explorerUrl: result.message.explorerUrl,
+          };
+          const responseText = `✓ Encrypted message sent to ${recipientPubkey.slice(0, 8)}…\nMessage ID: ${result.message.messageId}${result.message.explorerUrl ? `\nAnchored: ${result.message.explorerUrl}` : ""}`;
+          return { text: responseText, proof };
+        }
+        return { text: `Message failed: ${result.error}` };
+      }
+      return { text: `Please provide recipient's X25519 public key to encrypt the message.` };
     }
 
     // Delegation intent: "delegate <instruction> to <pubkey>"
@@ -283,6 +313,54 @@ export class KageAgent {
    */
   listTasks(): DelegationTask[] {
     return this.delegationPlugin.listTasks();
+  }
+
+  /**
+   * Get this agent's X25519 public key (share with counterparties for messaging)
+   */
+  getX25519PublicKey(): string {
+    return this.messagingPlugin.getX25519PublicKey();
+  }
+
+  /**
+   * Send an encrypted message to another agent
+   */
+  async sendMessage(params: {
+    recipientPubkey: string;
+    recipientX25519Pub: string;
+    text: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    return this.messagingPlugin.sendMessage(params);
+  }
+
+  /**
+   * Receive and decrypt a message (called by transport layer)
+   */
+  receiveMessage(msg: AgentMessage): MessageContent | null {
+    const result = this.messagingPlugin.receiveMessage(msg);
+    return result.success ? (result.content ?? null) : null;
+  }
+
+  /**
+   * Deliver a raw message to this agent's inbox
+   */
+  deliverToInbox(msg: AgentMessage): void {
+    this.messagingPlugin.deliverToInbox(msg);
+  }
+
+  /**
+   * Get all inbox messages
+   */
+  getInbox(): AgentMessage[] {
+    return this.messagingPlugin.getInbox();
+  }
+
+  /**
+   * Get unread inbox messages
+   */
+  getUnreadMessages(): AgentMessage[] {
+    return this.messagingPlugin.getUnreadMessages();
   }
 }
 

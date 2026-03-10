@@ -34,10 +34,10 @@ const phases = [
     name: 'Multi-Agent',
     status: 'current',
     items: [
-      { text: 'Shielded task delegation', done: false },
-      { text: 'Private payment channels', done: false },
-      { text: 'Encrypted messaging', done: false },
+      { text: 'Shielded task delegation', done: true },
+      { text: 'Encrypted agent-to-agent messaging', done: false },
       { text: 'Group vaults', done: false },
+      { text: 'Private payment channels', done: false },
     ],
   },
   {

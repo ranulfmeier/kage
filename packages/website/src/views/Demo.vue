@@ -5,7 +5,7 @@ import { RouterLink } from 'vue-router';
 const WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3002';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
-type ActiveTab = 'chat' | 'delegation';
+type ActiveTab = 'chat' | 'delegation' | 'messaging';
 
 interface StoreProof {
   cid?: string;
@@ -56,6 +56,22 @@ const delegTasks = ref<DelegationTaskUI[]>([]);
 const delegRecipient = ref('');
 const delegInstruction = ref('');
 const isDelegating = ref(false);
+
+// Messaging state
+interface InboxMessage {
+  messageId: string;
+  from: string;
+  sentAt: string;
+  read: boolean;
+  explorerUrl?: string;
+}
+const agentX25519Pub = ref('');
+const msgRecipientPubkey = ref('');
+const msgRecipientX25519 = ref('');
+const msgText = ref('');
+const isSendingMsg = ref(false);
+const inbox = ref<InboxMessage[]>([]);
+const sentMessages = ref<{ messageId: string; to: string; explorerUrl?: string }[]>([]);
 
 let ws: WebSocket | null = null;
 
@@ -113,8 +129,15 @@ function connect() {
     } else if (msg.type === 'task_created') {
       isDelegating.value = false;
       delegTasks.value.unshift(msg.task as DelegationTaskUI);
+    } else if (msg.type === 'message_sent') {
+      isSendingMsg.value = false;
+      sentMessages.value.unshift(msg.message);
+      msgText.value = '';
+    } else if (msg.type === 'message_received') {
+      fetchInbox();
     } else if (msg.type === 'error') {
       isDelegating.value = false;
+      isSendingMsg.value = false;
       isTyping.value = false;
       messages.value.push({
         role: 'system',
@@ -220,6 +243,42 @@ function sendDelegate() {
   }));
 }
 
+async function fetchAgentX25519() {
+  try {
+    const res = await fetch(`${API_URL}/agent/x25519`);
+    const data = await res.json();
+    agentX25519Pub.value = data.x25519PublicKey ?? '';
+  } catch {
+    agentX25519Pub.value = '';
+  }
+}
+
+async function fetchInbox() {
+  try {
+    const res = await fetch(`${API_URL}/inbox`);
+    const data = await res.json();
+    inbox.value = data.messages ?? [];
+  } catch {
+    inbox.value = [];
+  }
+}
+
+function sendEncryptedMessage() {
+  if (!msgRecipientPubkey.value.trim() || !msgRecipientX25519.value.trim() || !msgText.value.trim()) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  isSendingMsg.value = true;
+  ws.send(JSON.stringify({
+    type: 'send_message',
+    recipientPubkey: msgRecipientPubkey.value.trim(),
+    recipientX25519Pub: msgRecipientX25519.value.trim(),
+    text: msgText.value.trim(),
+  }));
+}
+
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text);
+}
+
 function statusColor(status: string) {
   return status === 'completed' ? 'text-emerald-600'
     : status === 'accepted' ? 'text-sky-600'
@@ -229,6 +288,7 @@ function statusColor(status: string) {
 
 onMounted(() => {
   connect();
+  fetchAgentX25519();
 });
 
 onUnmounted(() => {
@@ -310,20 +370,27 @@ onUnmounted(() => {
       </div>
 
       <!-- Tab bar -->
-      <div class="flex gap-0 border border-stone-200 mb-4 w-fit">
+      <div class="flex gap-0 border border-stone-200 mb-4 w-fit overflow-x-auto">
         <button
           @click="activeTab = 'chat'"
-          class="px-5 py-2 text-xs tracking-widest uppercase transition-colors"
+          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors whitespace-nowrap"
           :class="activeTab === 'chat' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
         >
           Memory Vault
         </button>
         <button
           @click="activeTab = 'delegation'; fetchTasks()"
-          class="px-5 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200"
+          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
           :class="activeTab === 'delegation' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
         >
           Task Delegation
+        </button>
+        <button
+          @click="activeTab = 'messaging'; fetchAgentX25519(); fetchInbox()"
+          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
+          :class="activeTab === 'messaging' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
+        >
+          Messaging
         </button>
       </div>
 
@@ -553,6 +620,143 @@ onUnmounted(() => {
             <li>Only the payload hash is committed on-chain (Solana Memo program)</li>
             <li>Recipient agent decrypts and executes the task off-chain</li>
             <li>Result is encrypted back — neither payload nor result is visible on-chain</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- ── MESSAGING TAB ── -->
+      <div v-if="activeTab === 'messaging'" class="space-y-4">
+
+        <!-- Agent identity card -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Your Agent Identity</p>
+          <div class="space-y-2">
+            <div>
+              <p class="text-xs text-stone-400 mb-1">Solana Address</p>
+              <div class="flex items-center gap-2">
+                <span class="font-mono text-xs text-stone-600 break-all">{{ agentId || '—' }}</span>
+                <button v-if="agentId" @click="copyToClipboard(agentId)" class="text-stone-400 hover:text-stone-700 flex-shrink-0">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs text-stone-400 mb-1">X25519 Public Key <span class="text-stone-300">(share for encrypted messaging)</span></p>
+              <div class="flex items-center gap-2">
+                <span class="font-mono text-xs text-stone-600 break-all">{{ agentX25519Pub || '—' }}</span>
+                <button v-if="agentX25519Pub" @click="copyToClipboard(agentX25519Pub)" class="text-stone-400 hover:text-stone-700 flex-shrink-0">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Compose form -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Send Encrypted Message</p>
+
+          <div class="space-y-1">
+            <label class="text-xs text-stone-500 tracking-wide">Recipient Solana Address</label>
+            <input
+              v-model="msgRecipientPubkey"
+              placeholder="Solana public key…"
+              class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-xs font-mono text-stone-700 outline-none focus:border-stone-400 transition-colors"
+              :disabled="!isConnected"
+            />
+          </div>
+
+          <div class="space-y-1">
+            <label class="text-xs text-stone-500 tracking-wide">Recipient X25519 Public Key</label>
+            <input
+              v-model="msgRecipientX25519"
+              placeholder="Base64 X25519 key (from /agent/x25519 endpoint)…"
+              class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-xs font-mono text-stone-700 outline-none focus:border-stone-400 transition-colors"
+              :disabled="!isConnected"
+            />
+          </div>
+
+          <div class="space-y-1">
+            <label class="text-xs text-stone-500 tracking-wide">Message</label>
+            <textarea
+              v-model="msgText"
+              placeholder="Type a message — encrypted before sending…"
+              rows="3"
+              class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 outline-none focus:border-stone-400 transition-colors resize-none"
+              :disabled="!isConnected"
+              style="font-family: inherit;"
+            ></textarea>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button
+              @click="sendEncryptedMessage"
+              :disabled="!isConnected || !msgRecipientPubkey.trim() || !msgRecipientX25519.trim() || !msgText.trim() || isSendingMsg"
+              class="px-6 py-2.5 bg-stone-800 text-stone-100 text-xs tracking-widest uppercase hover:bg-stone-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              {{ isSendingMsg ? 'Sending…' : 'Send Encrypted' }}
+            </button>
+            <p class="text-xs text-stone-400">AES-256-GCM · X25519 DH</p>
+          </div>
+        </div>
+
+        <!-- Sent messages -->
+        <div v-if="sentMessages.length > 0" class="border border-stone-200 bg-white/70 p-5">
+          <p class="text-xs tracking-widest uppercase text-stone-400 mb-4">Sent</p>
+          <div class="space-y-3">
+            <div v-for="m in sentMessages" :key="m.messageId" class="border border-stone-100 p-3 space-y-1">
+              <div class="flex items-start justify-between gap-2">
+                <span class="font-mono text-xs text-stone-600">{{ m.messageId.slice(0, 28) }}…</span>
+                <span class="text-xs text-emerald-600 font-medium">sent</span>
+              </div>
+              <p class="text-xs text-stone-400">To: <span class="font-mono">{{ m.to.slice(0, 12) }}…</span></p>
+              <a v-if="m.explorerUrl" :href="m.explorerUrl" target="_blank"
+                class="flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-700 transition-colors font-medium w-fit">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
+                Verify on Solscan
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inbox -->
+        <div class="border border-stone-200 bg-white/70 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <p class="text-xs tracking-widest uppercase text-stone-400">
+              Inbox
+              <span v-if="inbox.filter(m => !m.read).length > 0" class="ml-2 bg-stone-800 text-stone-100 px-1.5 py-0.5 text-[10px] rounded-full">
+                {{ inbox.filter(m => !m.read).length }}
+              </span>
+            </p>
+            <button @click="fetchInbox" class="text-xs text-stone-400 hover:text-stone-700 uppercase tracking-widest transition-colors">Refresh</button>
+          </div>
+          <div v-if="inbox.length === 0" class="text-sm text-stone-400 italic text-center py-6">No messages yet.</div>
+          <div v-else class="space-y-2">
+            <div v-for="m in inbox" :key="m.messageId" class="border border-stone-100 p-3 space-y-1">
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-mono text-xs text-stone-600">{{ m.messageId.slice(0, 24) }}…</span>
+                <span class="text-[10px]" :class="m.read ? 'text-stone-400' : 'text-sky-600 font-semibold'">{{ m.read ? 'read' : 'unread' }}</span>
+              </div>
+              <p class="text-xs text-stone-400">From: <span class="font-mono">{{ m.from }}</span> · {{ m.sentAt }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="border border-stone-100 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">How Encrypted Messaging Works</p>
+          <ol class="space-y-2 text-xs text-stone-500 list-decimal list-inside leading-relaxed">
+            <li>Each agent derives an X25519 keypair from their Ed25519 (Solana) seed</li>
+            <li>Sender performs X25519 DH with recipient's X25519 pub → shared secret</li>
+            <li>Message is encrypted with AES-256-GCM using that shared secret</li>
+            <li>Only ciphertext + content hash are transmitted — hash anchored on Solana</li>
+            <li>Recipient decrypts using their own X25519 key + sender's X25519 pub</li>
           </ol>
         </div>
       </div>
