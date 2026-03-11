@@ -33,7 +33,11 @@ import {
   KageDIDPlugin,
   createKageDIDPlugin,
 } from "./plugins/kage-did.js";
-import { DelegationTask, DelegationEngine, AgentMessage, MessageContent, GroupMember, GroupVaultGroup, GroupVaultStore, ShieldedPayment, ScanResult, ReasoningTrace, KageDIDDocument, KageCredential, DIDResolution } from "@kage/sdk";
+import {
+  KageReputationPlugin,
+  createKageReputationPlugin,
+} from "./plugins/kage-reputation.js";
+import { DelegationTask, DelegationEngine, AgentMessage, MessageContent, GroupMember, GroupVaultGroup, GroupVaultStore, ShieldedPayment, ScanResult, ReasoningTrace, KageDIDDocument, KageCredential, DIDResolution, AgentReputation, ReputationEvent, ReputationSnapshot, TaskOutcome } from "@kage/sdk";
 import {
   KageCharacter,
   AgentCharacter,
@@ -121,6 +125,7 @@ export class KageAgent {
   private paymentPlugin: KagePaymentPlugin;
   private reasoningPlugin: KageReasoningPlugin;
   private didPlugin: KageDIDPlugin;
+  private reputationPlugin: KageReputationPlugin;
   private anthropic: Anthropic;
   private conversationHistory: Message[] = [];
   private initialized = false;
@@ -157,6 +162,10 @@ export class KageAgent {
       rpcUrl: config.rpcUrl,
       network: config.umbraNetwork,
     });
+    this.reputationPlugin = createKageReputationPlugin({
+      rpcUrl: config.rpcUrl,
+      network: config.umbraNetwork,
+    });
     this.anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
   }
 
@@ -174,6 +183,7 @@ export class KageAgent {
     await this.paymentPlugin.initialize(this.keypair);
     await this.reasoningPlugin.initialize(this.keypair);
     await this.didPlugin.initialize(this.keypair);
+    await this.reputationPlugin.initialize(this.keypair);
 
     // Start a reasoning session for this agent instance
     this.reasoningSessionId = this.reasoningPlugin.startSession();
@@ -671,6 +681,40 @@ export class KageAgent {
 
   getAllKnownDIDs(): KageDIDDocument[] {
     return this.didPlugin.getAllKnownDIDs();
+  }
+
+  // ── Reputation ─────────────────────────────────────────────────────────────
+
+  async recordTask(params: {
+    agentDID?: string;
+    outcome: TaskOutcome;
+    description?: string;
+  }): Promise<ReputationEvent> {
+    return this.reputationPlugin.recordTask(params);
+  }
+
+  async slash(params: { agentDID?: string; reason: string }): Promise<ReputationEvent> {
+    return this.reputationPlugin.slash(params);
+  }
+
+  async commitReputationSnapshot(): Promise<ReputationSnapshot> {
+    return this.reputationPlugin.commitSnapshot();
+  }
+
+  getSelfReputation(): AgentReputation | undefined {
+    return this.reputationPlugin.getSelfReputation();
+  }
+
+  getReputation(did: string): AgentReputation | undefined {
+    return this.reputationPlugin.getReputation(did);
+  }
+
+  getSuccessRate(): number {
+    return this.reputationPlugin.getSuccessRate();
+  }
+
+  getLeaderboard(): AgentReputation[] {
+    return this.reputationPlugin.getLeaderboard();
   }
 }
 

@@ -9,3 +9,4 @@ export * from "./group-vault.js";
 export * from "./shielded-payment.js";
 export * from "./reasoning.js";
 export * from "./did.js";
+export * from "./reputation.js";

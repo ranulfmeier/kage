@@ -232,6 +232,63 @@ app.get("/reasoning/audit-key", async (_req, res) => {
   }
 });
 
+// ── Reputation Endpoints ───────────────────────────────────────────────────────
+
+app.get("/reputation", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    const rep = agent.getSelfReputation();
+    res.json({ reputation: rep ?? null, successRate: agent.getSuccessRate() });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/reputation/leaderboard", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    res.json({ leaderboard: agent.getLeaderboard() });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/reputation/task", async (req, res) => {
+  try {
+    const agent = await getAgent();
+    const { outcome, description, agentDID } = req.body;
+    if (!outcome) return res.status(400).json({ error: "outcome is required" });
+    const event = await agent.recordTask({ outcome, description, agentDID });
+    const rep = agent.getSelfReputation();
+    res.json({ event, reputation: rep });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/reputation/slash", async (req, res) => {
+  try {
+    const agent = await getAgent();
+    const { reason, agentDID } = req.body;
+    if (!reason) return res.status(400).json({ error: "reason is required" });
+    const event = await agent.slash({ reason, agentDID });
+    const rep = agent.getSelfReputation();
+    res.json({ event, reputation: rep });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/reputation/snapshot", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    const snapshot = await agent.commitReputationSnapshot();
+    res.json({ snapshot });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ── DID Endpoints ─────────────────────────────────────────────────────────────
 
 app.get("/did", async (_req, res) => {
@@ -552,6 +609,56 @@ wss.on("connection", async (ws: WebSocket) => {
             explorerUrl: r.explorerUrl,
           })),
         }));
+      }
+
+      // Reputation handlers
+      if (msg.type === "rep_get") {
+        const rep = agent.getSelfReputation();
+        ws.send(JSON.stringify({
+          type: "reputation",
+          reputation: rep ?? null,
+          successRate: agent.getSuccessRate(),
+          leaderboard: agent.getLeaderboard(),
+        }));
+      }
+
+      if (msg.type === "rep_record_task") {
+        const { outcome, description, agentDID } = msg;
+        if (!outcome) {
+          ws.send(JSON.stringify({ type: "error", message: "outcome is required" }));
+          return;
+        }
+        try {
+          const event = await agent.recordTask({ outcome, description, agentDID });
+          const rep = agent.getSelfReputation();
+          ws.send(JSON.stringify({ type: "reputation_updated", event, reputation: rep }));
+        } catch (err) {
+          ws.send(JSON.stringify({ type: "error", message: (err as Error).message }));
+        }
+      }
+
+      if (msg.type === "rep_slash") {
+        const { reason, agentDID } = msg;
+        if (!reason) {
+          ws.send(JSON.stringify({ type: "error", message: "reason is required" }));
+          return;
+        }
+        try {
+          const event = await agent.slash({ reason, agentDID });
+          const rep = agent.getSelfReputation();
+          ws.send(JSON.stringify({ type: "reputation_updated", event, reputation: rep }));
+        } catch (err) {
+          ws.send(JSON.stringify({ type: "error", message: (err as Error).message }));
+        }
+      }
+
+      if (msg.type === "rep_snapshot") {
+        try {
+          const snapshot = await agent.commitReputationSnapshot();
+          ws.send(JSON.stringify({ type: "reputation_snapshot", snapshot }));
+        } catch (err) {
+          ws.send(JSON.stringify({ type: "error", message: (err as Error).message }));
+        }
       }
 
       // DID handlers

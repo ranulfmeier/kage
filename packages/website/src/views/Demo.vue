@@ -5,7 +5,7 @@ import { RouterLink } from 'vue-router';
 const WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3002';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
-type ActiveTab = 'chat' | 'delegation' | 'messaging' | 'groups' | 'payments' | 'did';
+type ActiveTab = 'chat' | 'delegation' | 'messaging' | 'groups' | 'payments' | 'did' | 'reputation';
 
 interface StoreProof {
   cid?: string;
@@ -109,6 +109,41 @@ const msgText = ref('');
 const isSendingMsg = ref(false);
 const inbox = ref<InboxMessage[]>([]);
 const sentMessages = ref<{ messageId: string; to: string; explorerUrl?: string }[]>([]);
+
+// Reputation state
+interface RepEvent {
+  eventId: string;
+  type: string;
+  outcome: string;
+  delta: number;
+  description: string;
+  txSignature?: string;
+  explorerUrl?: string;
+  timestamp: number;
+}
+interface AgentRep {
+  agentDID: string;
+  score: number;
+  tier: string;
+  totalTasks: number;
+  successfulTasks: number;
+  failedTasks: number;
+  slashCount: number;
+  events: RepEvent[];
+  lastUpdated: number;
+  lastTxSignature?: string;
+}
+const selfRep = ref<AgentRep | null>(null);
+const repSuccessRate = ref(0);
+const repLeaderboard = ref<AgentRep[]>([]);
+const isLoadingRep = ref(false);
+const repTaskOutcome = ref<'success' | 'partial' | 'failure'>('success');
+const repTaskDesc = ref('');
+const isRecordingTask = ref(false);
+const repSlashReason = ref('');
+const isSlashing = ref(false);
+const lastRepSnapshot = ref<{ score: number; tier: string; explorerUrl?: string } | null>(null);
+const isCommittingSnapshot = ref(false);
 
 // DID state
 interface DIDDocument {
@@ -241,6 +276,21 @@ function connect() {
     } else if (msg.type === 'scan_results') {
       isScanning.value = false;
       fetchPayments();
+    } else if (msg.type === 'reputation') {
+      selfRep.value = msg.reputation;
+      repSuccessRate.value = msg.successRate ?? 0;
+      repLeaderboard.value = msg.leaderboard ?? [];
+      isLoadingRep.value = false;
+    } else if (msg.type === 'reputation_updated') {
+      selfRep.value = msg.reputation;
+      isRecordingTask.value = false;
+      isSlashing.value = false;
+      repTaskDesc.value = '';
+      repSlashReason.value = '';
+    } else if (msg.type === 'reputation_snapshot') {
+      isCommittingSnapshot.value = false;
+      lastRepSnapshot.value = msg.snapshot ?? null;
+      fetchReputation();
     } else if (msg.type === 'did_document') {
       selfDID.value = msg.did ?? '';
       didDocument.value = msg.document ?? null;
@@ -288,6 +338,48 @@ function connect() {
     });
     scrollToBottom();
   };
+}
+
+function fetchReputation() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  isLoadingRep.value = true;
+  ws.send(JSON.stringify({ type: 'rep_get' }));
+}
+
+function recordTask() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  isRecordingTask.value = true;
+  ws.send(JSON.stringify({
+    type: 'rep_record_task',
+    outcome: repTaskOutcome.value,
+    description: repTaskDesc.value || undefined,
+  }));
+}
+
+function slashSelf() {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !repSlashReason.value.trim()) return;
+  isSlashing.value = true;
+  ws.send(JSON.stringify({ type: 'rep_slash', reason: repSlashReason.value }));
+}
+
+function commitSnapshot() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  isCommittingSnapshot.value = true;
+  ws.send(JSON.stringify({ type: 'rep_snapshot' }));
+}
+
+function tierColor(tier: string) {
+  return {
+    elite: 'text-yellow-600 bg-yellow-50 border-yellow-200',
+    verified: 'text-violet-600 bg-violet-50 border-violet-200',
+    trusted: 'text-emerald-600 bg-emerald-50 border-emerald-200',
+    newcomer: 'text-blue-600 bg-blue-50 border-blue-200',
+    unknown: 'text-stone-500 bg-stone-50 border-stone-200',
+  }[tier] ?? 'text-stone-500 bg-stone-50 border-stone-200';
+}
+
+function scoreBarWidth(score: number) {
+  return Math.min(100, Math.max(0, score / 10)) + '%';
 }
 
 function fetchDID() {
@@ -730,6 +822,13 @@ onUnmounted(() => {
           :class="activeTab === 'did' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
         >
           Identity
+        </button>
+        <button
+          @click="activeTab = 'reputation'; fetchReputation()"
+          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
+          :class="activeTab === 'reputation' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
+        >
+          Reputation
         </button>
       </div>
 
@@ -1503,6 +1602,186 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- ── REPUTATION TAB ── -->
+      <div v-if="activeTab === 'reputation'" class="space-y-4">
+
+        <!-- Score Card -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <p class="text-xs tracking-widest uppercase text-stone-400">Agent Reputation Score</p>
+            <button
+              @click="fetchReputation"
+              :disabled="!isConnected || isLoadingRep"
+              class="px-3 py-1 text-xs tracking-widest uppercase border border-stone-200 text-stone-500 hover:border-stone-400 disabled:opacity-30 transition-colors"
+            >{{ isLoadingRep ? 'Loading…' : 'Refresh' }}</button>
+          </div>
+
+          <div v-if="selfRep" class="space-y-4">
+            <!-- Score + tier -->
+            <div class="flex items-end gap-4">
+              <div>
+                <p class="text-6xl font-bold text-stone-800 leading-none">{{ selfRep.score }}</p>
+                <p class="text-xs text-stone-400 mt-1">/ 1000</p>
+              </div>
+              <div>
+                <span class="text-xs px-2 py-1 border rounded-full font-medium" :class="tierColor(selfRep.tier)">
+                  {{ selfRep.tier.toUpperCase() }}
+                </span>
+                <p class="text-xs text-stone-400 mt-1">Success rate: {{ repSuccessRate }}%</p>
+              </div>
+            </div>
+
+            <!-- Score bar -->
+            <div class="h-2 bg-stone-100 rounded-full overflow-hidden">
+              <div
+                class="h-full rounded-full transition-all duration-700"
+                :class="selfRep.score >= 800 ? 'bg-yellow-400' : selfRep.score >= 600 ? 'bg-violet-500' : selfRep.score >= 350 ? 'bg-emerald-500' : 'bg-blue-400'"
+                :style="{ width: scoreBarWidth(selfRep.score) }"
+              ></div>
+            </div>
+
+            <!-- Stats grid -->
+            <div class="grid grid-cols-4 gap-2 text-center">
+              <div class="bg-stone-50 border border-stone-100 p-2 rounded-sm">
+                <p class="text-lg font-semibold text-stone-800">{{ selfRep.totalTasks }}</p>
+                <p class="text-xs text-stone-400">Total Tasks</p>
+              </div>
+              <div class="bg-emerald-50 border border-emerald-100 p-2 rounded-sm">
+                <p class="text-lg font-semibold text-emerald-700">{{ selfRep.successfulTasks }}</p>
+                <p class="text-xs text-stone-400">Success</p>
+              </div>
+              <div class="bg-red-50 border border-red-100 p-2 rounded-sm">
+                <p class="text-lg font-semibold text-red-600">{{ selfRep.failedTasks }}</p>
+                <p class="text-xs text-stone-400">Failed</p>
+              </div>
+              <div class="bg-orange-50 border border-orange-100 p-2 rounded-sm">
+                <p class="text-lg font-semibold text-orange-600">{{ selfRep.slashCount }}</p>
+                <p class="text-xs text-stone-400">Slashed</p>
+              </div>
+            </div>
+
+            <!-- On-chain anchor -->
+            <div v-if="selfRep.lastTxSignature" class="flex items-center gap-2 text-xs text-stone-400">
+              <span>On-chain:</span>
+              <a :href="`https://solscan.io/tx/${selfRep.lastTxSignature}?cluster=devnet`"
+                 target="_blank" class="underline hover:text-stone-600 font-mono">
+                {{ selfRep.lastTxSignature.slice(0,16) }}…
+              </a>
+            </div>
+          </div>
+          <p v-else class="text-xs text-stone-400">Click Refresh to load reputation…</p>
+        </div>
+
+        <!-- Record Task -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Record Task Outcome</p>
+
+          <div class="flex gap-2">
+            <button
+              v-for="o in ['success', 'partial', 'failure']"
+              :key="o"
+              @click="repTaskOutcome = o as 'success' | 'partial' | 'failure'"
+              class="flex-1 py-2 text-xs tracking-widest uppercase border transition-colors"
+              :class="repTaskOutcome === o
+                ? (o === 'success' ? 'bg-emerald-700 text-white border-emerald-700' : o === 'partial' ? 'bg-amber-600 text-white border-amber-600' : 'bg-red-700 text-white border-red-700')
+                : 'text-stone-400 border-stone-200 hover:border-stone-400'"
+            >
+              {{ o === 'success' ? '+25' : o === 'partial' ? '+8' : '-15' }} {{ o }}
+            </button>
+          </div>
+
+          <input
+            v-model="repTaskDesc"
+            placeholder="Task description (optional)…"
+            class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-700 outline-none focus:border-stone-400 transition-colors"
+            :disabled="!isConnected"
+          />
+
+          <button
+            @click="recordTask"
+            :disabled="!isConnected || isRecordingTask"
+            class="px-6 py-2.5 bg-stone-800 text-stone-100 text-xs tracking-widest uppercase hover:bg-stone-900 disabled:opacity-30 transition-colors"
+          >{{ isRecordingTask ? 'Recording…' : 'Record Task' }}</button>
+        </div>
+
+        <!-- Slash -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Slash (−80 pts)</p>
+          <div class="flex gap-2">
+            <input
+              v-model="repSlashReason"
+              placeholder="Reason for slash…"
+              class="flex-1 bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-700 outline-none focus:border-stone-400 transition-colors"
+              :disabled="!isConnected"
+            />
+            <button
+              @click="slashSelf"
+              :disabled="!isConnected || !repSlashReason.trim() || isSlashing"
+              class="px-4 py-2 bg-red-700 text-white text-xs tracking-widest uppercase hover:bg-red-800 disabled:opacity-30 transition-colors"
+            >{{ isSlashing ? 'Slashing…' : 'Slash' }}</button>
+          </div>
+        </div>
+
+        <!-- Commit Snapshot -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <p class="text-xs tracking-widest uppercase text-stone-400">Anchor Score On-Chain</p>
+            <button
+              @click="commitSnapshot"
+              :disabled="!isConnected || isCommittingSnapshot"
+              class="px-4 py-2 bg-stone-800 text-stone-100 text-xs tracking-widest uppercase hover:bg-stone-900 disabled:opacity-30 transition-colors"
+            >{{ isCommittingSnapshot ? 'Committing…' : 'Commit Snapshot' }}</button>
+          </div>
+          <div v-if="lastRepSnapshot" class="bg-emerald-50 border border-emerald-200 p-3 rounded-sm space-y-1">
+            <p class="text-xs text-emerald-700">✓ Snapshot committed — score={{ lastRepSnapshot.score }} tier={{ lastRepSnapshot.tier }}</p>
+            <a v-if="lastRepSnapshot.explorerUrl" :href="lastRepSnapshot.explorerUrl" target="_blank"
+               class="text-xs text-stone-500 underline">View on Solscan ↗</a>
+          </div>
+        </div>
+
+        <!-- Event log -->
+        <div v-if="selfRep && selfRep.events.length > 0" class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Event Log ({{ selfRep.events.length }})</p>
+          <div class="space-y-2 max-h-64 overflow-y-auto">
+            <div
+              v-for="evt in [...selfRep.events].reverse()"
+              :key="evt.eventId"
+              class="flex items-start gap-3 text-xs border-b border-stone-100 pb-2"
+            >
+              <span
+                class="font-mono font-semibold flex-shrink-0 w-10 text-right"
+                :class="evt.delta > 0 ? 'text-emerald-600' : 'text-red-600'"
+              >{{ evt.delta > 0 ? '+' : '' }}{{ evt.delta }}</span>
+              <div class="flex-1">
+                <p class="text-stone-700">{{ evt.description }}</p>
+                <div class="flex items-center gap-2 mt-0.5">
+                  <span class="text-stone-400">{{ new Date(evt.timestamp).toLocaleTimeString() }}</span>
+                  <a v-if="evt.explorerUrl" :href="evt.explorerUrl" target="_blank"
+                     class="text-stone-400 underline hover:text-stone-600">Solscan ↗</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="border border-stone-200 bg-white/70 p-5">
+          <p class="text-xs tracking-widest uppercase text-stone-400 mb-3">Scoring System</p>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="flex items-center gap-2"><span class="text-emerald-600 font-mono w-8">+25</span><span class="text-stone-600">Task success</span></div>
+            <div class="flex items-center gap-2"><span class="text-amber-600 font-mono w-8">+8</span><span class="text-stone-600">Partial completion</span></div>
+            <div class="flex items-center gap-2"><span class="text-red-600 font-mono w-8">-15</span><span class="text-stone-600">Task failure</span></div>
+            <div class="flex items-center gap-2"><span class="text-red-700 font-mono w-8">-80</span><span class="text-stone-600">Slash (malicious)</span></div>
+            <div class="flex items-center gap-2"><span class="text-emerald-600 font-mono w-8">+10</span><span class="text-stone-600">Credential issued</span></div>
+          </div>
+          <div class="mt-3 space-y-1 text-xs text-stone-500">
+            <p>Tiers: <span class="text-blue-500">Newcomer</span> (100+) → <span class="text-emerald-600">Trusted</span> (350+) → <span class="text-violet-600">Verified</span> (600+) → <span class="text-yellow-600">Elite</span> (800+)</p>
+            <p>Each event is committed on-chain via Solana Memo — tamper-proof audit trail.</p>
+          </div>
+        </div>
+
       </div>
 
       <!-- ── IDENTITY (DID) TAB ── -->
