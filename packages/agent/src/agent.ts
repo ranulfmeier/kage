@@ -29,7 +29,11 @@ import {
   KageReasoningPlugin,
   createKageReasoningPlugin,
 } from "./plugins/kage-reasoning.js";
-import { DelegationTask, DelegationEngine, AgentMessage, MessageContent, GroupMember, GroupVaultGroup, GroupVaultStore, ShieldedPayment, ScanResult, ReasoningTrace } from "@kage/sdk";
+import {
+  KageDIDPlugin,
+  createKageDIDPlugin,
+} from "./plugins/kage-did.js";
+import { DelegationTask, DelegationEngine, AgentMessage, MessageContent, GroupMember, GroupVaultGroup, GroupVaultStore, ShieldedPayment, ScanResult, ReasoningTrace, KageDIDDocument, KageCredential, DIDResolution } from "@kage/sdk";
 import {
   KageCharacter,
   AgentCharacter,
@@ -116,6 +120,7 @@ export class KageAgent {
   private groupVaultPlugin: KageGroupVaultPlugin;
   private paymentPlugin: KagePaymentPlugin;
   private reasoningPlugin: KageReasoningPlugin;
+  private didPlugin: KageDIDPlugin;
   private anthropic: Anthropic;
   private conversationHistory: Message[] = [];
   private initialized = false;
@@ -148,6 +153,10 @@ export class KageAgent {
     this.groupVaultPlugin = createKageGroupVaultPlugin({ rpcUrl: config.rpcUrl });
     this.paymentPlugin = new KagePaymentPlugin({ rpcUrl: config.rpcUrl });
     this.reasoningPlugin = createKageReasoningPlugin({ rpcUrl: config.rpcUrl });
+    this.didPlugin = createKageDIDPlugin({
+      rpcUrl: config.rpcUrl,
+      network: config.umbraNetwork,
+    });
     this.anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
   }
 
@@ -164,6 +173,7 @@ export class KageAgent {
     await this.groupVaultPlugin.initialize(this.keypair);
     await this.paymentPlugin.initialize(this.keypair);
     await this.reasoningPlugin.initialize(this.keypair);
+    await this.didPlugin.initialize(this.keypair);
 
     // Start a reasoning session for this agent instance
     this.reasoningSessionId = this.reasoningPlugin.startSession();
@@ -622,6 +632,45 @@ export class KageAgent {
 
   getPaymentHistory(): ShieldedPayment[] {
     return this.paymentPlugin.getAllPayments();
+  }
+
+  // ── DID ────────────────────────────────────────────────────────────────────
+
+  getSelfDID(): string {
+    return this.didPlugin.getSelfDID();
+  }
+
+  getSelfDIDDocument(): KageDIDDocument | undefined {
+    return this.didPlugin.getSelfDocument();
+  }
+
+  async resolveDID(did: string): Promise<DIDResolution | null> {
+    return this.didPlugin.resolveDID(did);
+  }
+
+  registerPeerDID(document: KageDIDDocument): void {
+    this.didPlugin.registerPeerDID(document);
+  }
+
+  async issueCredential(params: {
+    subjectDID: string;
+    type: string;
+    claim: Record<string, unknown>;
+    expiresInMs?: number;
+  }): Promise<KageCredential> {
+    return this.didPlugin.issueCredential(params);
+  }
+
+  verifyCredential(credential: KageCredential): { valid: boolean; reason?: string } {
+    return this.didPlugin.verifyCredential(credential);
+  }
+
+  getDIDCredentials(): KageCredential[] {
+    return this.didPlugin.getCredentials();
+  }
+
+  getAllKnownDIDs(): KageDIDDocument[] {
+    return this.didPlugin.getAllKnownDIDs();
   }
 }
 

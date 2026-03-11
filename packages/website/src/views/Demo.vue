@@ -5,7 +5,7 @@ import { RouterLink } from 'vue-router';
 const WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3002';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
-type ActiveTab = 'chat' | 'delegation' | 'messaging' | 'groups' | 'payments';
+type ActiveTab = 'chat' | 'delegation' | 'messaging' | 'groups' | 'payments' | 'did';
 
 interface StoreProof {
   cid?: string;
@@ -110,6 +110,41 @@ const isSendingMsg = ref(false);
 const inbox = ref<InboxMessage[]>([]);
 const sentMessages = ref<{ messageId: string; to: string; explorerUrl?: string }[]>([]);
 
+// DID state
+interface DIDDocument {
+  id: string;
+  controller: string;
+  verificationMethod: { id: string; type: string; publicKeyBase58?: string; publicKeyMultibase?: string }[];
+  service: { id: string; type: string; serviceEndpoint: string }[];
+  created: string;
+  updated: string;
+  kage: { agentType: string; capabilities: string[]; x25519ViewingPub: string; reasoningEnabled: boolean; network: string };
+}
+interface DIDCredential {
+  credentialId: string;
+  issuer: string;
+  subject: string;
+  type: string;
+  claim: Record<string, unknown>;
+  claimHash: string;
+  signature: string;
+  txSignature?: string;
+  explorerUrl?: string;
+  issuedAt: number;
+  expiresAt?: number;
+}
+const selfDID = ref('');
+const didDocument = ref<DIDDocument | null>(null);
+const didCredentials = ref<DIDCredential[]>([]);
+const isLoadingDID = ref(false);
+const credSubjectDID = ref('');
+const credType = ref('AgentCapability');
+const credClaim = ref('{"capability":"trading-analysis","level":"trusted"}');
+const isIssuingCred = ref(false);
+const lastIssuedCred = ref<DIDCredential | null>(null);
+const verifyCredJson = ref('');
+const verifyResult = ref<{ valid: boolean; reason?: string } | null>(null);
+
 // Deep Think & reasoning step state
 const deepThinkEnabled = ref(false);
 const liveReasoningSteps = ref<string[]>([]);
@@ -206,11 +241,24 @@ function connect() {
     } else if (msg.type === 'scan_results') {
       isScanning.value = false;
       fetchPayments();
+    } else if (msg.type === 'did_document') {
+      selfDID.value = msg.did ?? '';
+      didDocument.value = msg.document ?? null;
+      isLoadingDID.value = false;
+    } else if (msg.type === 'credential_issued') {
+      isIssuingCred.value = false;
+      lastIssuedCred.value = msg.credential;
+      fetchDIDCredentials();
+    } else if (msg.type === 'credential_verified') {
+      verifyResult.value = { valid: msg.valid, reason: msg.reason };
+    } else if (msg.type === 'credentials_list') {
+      didCredentials.value = msg.credentials ?? [];
     } else if (msg.type === 'error') {
       isSendingPayment.value = false;
       isScanning.value = false;
       isDelegating.value = false;
       isSendingMsg.value = false;
+      isIssuingCred.value = false;
       isTyping.value = false;
       messages.value.push({
         role: 'system',
@@ -240,6 +288,53 @@ function connect() {
     });
     scrollToBottom();
   };
+}
+
+function fetchDID() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  isLoadingDID.value = true;
+  ws.send(JSON.stringify({ type: 'did_get' }));
+}
+
+function fetchDIDCredentials() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'did_list_credentials' }));
+}
+
+function issueCredential() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  let claim: Record<string, unknown>;
+  try {
+    claim = JSON.parse(credClaim.value);
+  } catch {
+    alert('Claim JSON geçersiz');
+    return;
+  }
+  isIssuingCred.value = true;
+  lastIssuedCred.value = null;
+  ws.send(JSON.stringify({
+    type: 'did_issue_credential',
+    subjectDID: credSubjectDID.value || selfDID.value,
+    credType: credType.value,
+    claim,
+  }));
+}
+
+function verifyCred() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  try {
+    const credential = JSON.parse(verifyCredJson.value);
+    verifyResult.value = null;
+    ws.send(JSON.stringify({ type: 'did_verify_credential', credential }));
+  } catch {
+    alert('Credential JSON geçersiz');
+  }
+}
+
+function fillLastCredForVerify() {
+  if (lastIssuedCred.value) {
+    verifyCredJson.value = JSON.stringify(lastIssuedCred.value, null, 2);
+  }
 }
 
 function toggleDeepThink() {
@@ -628,6 +723,13 @@ onUnmounted(() => {
           :class="activeTab === 'payments' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
         >
           Payments
+        </button>
+        <button
+          @click="activeTab = 'did'; fetchDID(); fetchDIDCredentials()"
+          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
+          :class="activeTab === 'did' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
+        >
+          Identity
         </button>
       </div>
 
@@ -1401,6 +1503,201 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- ── IDENTITY (DID) TAB ── -->
+      <div v-if="activeTab === 'did'" class="space-y-4">
+
+        <!-- Self DID Card -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <p class="text-xs tracking-widest uppercase text-stone-400">Agent Identity (DID)</p>
+            <button
+              @click="fetchDID"
+              :disabled="!isConnected || isLoadingDID"
+              class="px-3 py-1 text-xs tracking-widest uppercase border border-stone-200 text-stone-500 hover:border-stone-400 disabled:opacity-30 transition-colors"
+            >
+              {{ isLoadingDID ? 'Loading…' : 'Refresh' }}
+            </button>
+          </div>
+
+          <div v-if="selfDID" class="space-y-3">
+            <!-- DID -->
+            <div class="bg-stone-50 border border-stone-200 p-3 rounded-sm">
+              <p class="text-xs text-stone-400 mb-1">DID</p>
+              <p class="font-mono text-xs text-stone-700 break-all">{{ selfDID }}</p>
+            </div>
+
+            <!-- Document summary -->
+            <div v-if="didDocument" class="grid grid-cols-2 gap-3">
+              <div class="bg-stone-50 border border-stone-100 p-3 rounded-sm">
+                <p class="text-xs text-stone-400 mb-1">Agent Type</p>
+                <p class="text-sm text-stone-700">{{ didDocument.kage?.agentType }}</p>
+              </div>
+              <div class="bg-stone-50 border border-stone-100 p-3 rounded-sm">
+                <p class="text-xs text-stone-400 mb-1">Network</p>
+                <p class="text-sm text-stone-700">{{ didDocument.kage?.network }}</p>
+              </div>
+              <div class="bg-stone-50 border border-stone-100 p-3 rounded-sm col-span-2">
+                <p class="text-xs text-stone-400 mb-1">Capabilities</p>
+                <div class="flex flex-wrap gap-1 mt-1">
+                  <span
+                    v-for="cap in didDocument.kage?.capabilities"
+                    :key="cap"
+                    class="text-xs px-2 py-0.5 bg-stone-200 text-stone-600 rounded-full font-mono"
+                  >{{ cap }}</span>
+                </div>
+              </div>
+              <div class="bg-stone-50 border border-stone-100 p-3 rounded-sm col-span-2">
+                <p class="text-xs text-stone-400 mb-1">X25519 Viewing Key</p>
+                <p class="font-mono text-xs text-stone-600 break-all">{{ didDocument.kage?.x25519ViewingPub }}</p>
+              </div>
+              <div class="bg-stone-50 border border-stone-100 p-3 rounded-sm">
+                <p class="text-xs text-stone-400 mb-1">Reasoning</p>
+                <span class="text-xs" :class="didDocument.kage?.reasoningEnabled ? 'text-emerald-600' : 'text-stone-400'">
+                  {{ didDocument.kage?.reasoningEnabled ? '✓ Enabled' : '✗ Disabled' }}
+                </span>
+              </div>
+              <div class="bg-stone-50 border border-stone-100 p-3 rounded-sm">
+                <p class="text-xs text-stone-400 mb-1">Verification Methods</p>
+                <p class="text-sm text-stone-700">{{ didDocument.verificationMethod?.length ?? 0 }}</p>
+              </div>
+            </div>
+
+            <!-- Full document toggle -->
+            <details class="text-xs">
+              <summary class="cursor-pointer text-stone-400 hover:text-stone-600 select-none">View full DID Document JSON</summary>
+              <pre class="mt-2 bg-stone-950 text-stone-100 p-3 rounded-sm overflow-x-auto text-xs leading-relaxed">{{ JSON.stringify(didDocument, null, 2) }}</pre>
+            </details>
+          </div>
+          <p v-else class="text-xs text-stone-400">Click Refresh to load DID document…</p>
+        </div>
+
+        <!-- Issue Credential -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Issue Verifiable Credential</p>
+
+          <div class="space-y-1">
+            <label class="text-xs text-stone-500 tracking-wide">Subject DID</label>
+            <input
+              v-model="credSubjectDID"
+              :placeholder="selfDID || 'did:sol:…'"
+              class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-xs font-mono text-stone-700 outline-none focus:border-stone-400 transition-colors"
+              :disabled="!isConnected"
+            />
+            <p class="text-xs text-stone-400">Leave empty to issue to self</p>
+          </div>
+
+          <div class="space-y-1">
+            <label class="text-xs text-stone-500 tracking-wide">Credential Type</label>
+            <select
+              v-model="credType"
+              class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-700 outline-none focus:border-stone-400 transition-colors"
+              :disabled="!isConnected"
+            >
+              <option>AgentCapability</option>
+              <option>TradingPermission</option>
+              <option>AuditClearance</option>
+              <option>GroupMembership</option>
+              <option>ReasoningAccess</option>
+            </select>
+          </div>
+
+          <div class="space-y-1">
+            <label class="text-xs text-stone-500 tracking-wide">Claim (JSON)</label>
+            <textarea
+              v-model="credClaim"
+              rows="3"
+              class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-xs font-mono text-stone-700 outline-none focus:border-stone-400 transition-colors resize-none"
+              :disabled="!isConnected"
+            ></textarea>
+          </div>
+
+          <button
+            @click="issueCredential"
+            :disabled="!isConnected || !credClaim.trim() || isIssuingCred"
+            class="px-6 py-2.5 bg-stone-800 text-stone-100 text-xs tracking-widest uppercase hover:bg-stone-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            {{ isIssuingCred ? 'Issuing…' : 'Issue Credential' }}
+          </button>
+
+          <!-- Last issued -->
+          <div v-if="lastIssuedCred" class="bg-emerald-50 border border-emerald-200 p-3 rounded-sm space-y-2">
+            <p class="text-xs text-emerald-700 font-medium">✓ Credential issued</p>
+            <p class="text-xs text-stone-500 font-mono">ID: {{ lastIssuedCred.credentialId }}</p>
+            <p class="text-xs text-stone-500">Type: {{ lastIssuedCred.type }}</p>
+            <a v-if="lastIssuedCred.explorerUrl" :href="lastIssuedCred.explorerUrl" target="_blank"
+               class="text-xs text-stone-500 underline block">View on Solscan ↗</a>
+            <button
+              @click="fillLastCredForVerify"
+              class="text-xs text-stone-500 underline hover:text-stone-700"
+            >Copy to verifier →</button>
+          </div>
+        </div>
+
+        <!-- Verify Credential -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Verify Credential</p>
+
+          <div class="space-y-1">
+            <label class="text-xs text-stone-500 tracking-wide">Credential JSON</label>
+            <textarea
+              v-model="verifyCredJson"
+              rows="5"
+              placeholder='Paste credential JSON here…'
+              class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-xs font-mono text-stone-700 outline-none focus:border-stone-400 transition-colors resize-none"
+              :disabled="!isConnected"
+            ></textarea>
+          </div>
+
+          <button
+            @click="verifyCred"
+            :disabled="!isConnected || !verifyCredJson.trim()"
+            class="px-6 py-2.5 bg-stone-800 text-stone-100 text-xs tracking-widest uppercase hover:bg-stone-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            Verify
+          </button>
+
+          <div v-if="verifyResult" class="flex items-center gap-2 p-3 rounded-sm"
+               :class="verifyResult.valid ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'">
+            <span class="text-sm">{{ verifyResult.valid ? '✓' : '✗' }}</span>
+            <div>
+              <p class="text-xs font-medium" :class="verifyResult.valid ? 'text-emerald-700' : 'text-red-700'">
+                {{ verifyResult.valid ? 'Credential valid' : 'Invalid credential' }}
+              </p>
+              <p v-if="verifyResult.reason" class="text-xs text-stone-500">{{ verifyResult.reason }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Credentials list -->
+        <div v-if="didCredentials.length > 0" class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Issued Credentials ({{ didCredentials.length }})</p>
+          <div v-for="cred in didCredentials" :key="cred.credentialId"
+               class="border border-stone-100 p-3 rounded-sm space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-stone-700">{{ cred.type }}</span>
+              <span class="text-xs text-stone-400">{{ new Date(cred.issuedAt).toLocaleTimeString() }}</span>
+            </div>
+            <p class="text-xs font-mono text-stone-500">{{ cred.credentialId }}</p>
+            <p class="text-xs text-stone-500">Subject: {{ cred.subject.slice(8, 20) }}…</p>
+            <a v-if="cred.explorerUrl" :href="cred.explorerUrl" target="_blank"
+               class="text-xs text-stone-400 underline">Solscan ↗</a>
+          </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="border border-stone-200 bg-white/70 p-5">
+          <p class="text-xs tracking-widest uppercase text-stone-400 mb-3">How DID Works</p>
+          <ol class="space-y-2 text-xs text-stone-600 list-none pl-0">
+            <li class="flex gap-2"><span class="text-stone-300 select-none">1.</span>Agent's Solana pubkey becomes its <span class="font-mono text-stone-700">did:sol:&lt;pubkey&gt;</span></li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">2.</span>DID Document lists Ed25519 signing key + X25519 encryption key</li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">3.</span>Issuer signs credential claim with their keypair → claimHash + signature</li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">4.</span>Credential hash committed on-chain via Solana Memo (tamper-proof)</li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">5.</span>Any agent can verify: recompute hash → check signature → check chain</li>
+          </ol>
+        </div>
+
       </div>
 
       <!-- Info Row -->

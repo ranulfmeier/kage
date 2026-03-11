@@ -46,7 +46,7 @@ const phases = [
     status: 'current',
     items: [
       { text: 'zkVM integration (SP1/Risc0)', done: false },
-      { text: 'Hidden reasoning traces', done: false },
+      { text: 'Hidden reasoning traces', done: true },
       { text: 'DID integration', done: false },
       { text: 'Reputation system', done: false },
     ],

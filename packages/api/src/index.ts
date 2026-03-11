@@ -232,6 +232,67 @@ app.get("/reasoning/audit-key", async (_req, res) => {
   }
 });
 
+// ── DID Endpoints ─────────────────────────────────────────────────────────────
+
+app.get("/did", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    const document = agent.getSelfDIDDocument();
+    const did = agent.getSelfDID();
+    res.json({ did, document: document ?? null });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/did/credentials", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    const credentials = agent.getDIDCredentials();
+    res.json({ count: credentials.length, credentials });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/did/credential/issue", async (req, res) => {
+  try {
+    const agent = await getAgent();
+    const { subjectDID, type, claim, expiresInMs } = req.body;
+    if (!subjectDID || !type || !claim) {
+      return res.status(400).json({ error: "subjectDID, type, and claim are required" });
+    }
+    const credential = await agent.issueCredential({ subjectDID, type, claim, expiresInMs });
+    res.json({ credential });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/did/credential/verify", async (req, res) => {
+  try {
+    const agent = await getAgent();
+    const { credential } = req.body;
+    if (!credential) return res.status(400).json({ error: "credential is required" });
+    const result = agent.verifyCredential(credential);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/did/resolve", async (req, res) => {
+  try {
+    const agent = await getAgent();
+    const { did } = req.body;
+    if (!did) return res.status(400).json({ error: "did is required" });
+    const resolution = await agent.resolveDID(did);
+    res.json({ resolution });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 app.get("/tasks", async (_req, res) => {
   try {
     const agent = await getAgent();
@@ -491,6 +552,50 @@ wss.on("connection", async (ws: WebSocket) => {
             explorerUrl: r.explorerUrl,
           })),
         }));
+      }
+
+      // DID handlers
+      if (msg.type === "did_get") {
+        const document = agent.getSelfDIDDocument();
+        ws.send(JSON.stringify({
+          type: "did_document",
+          did: agent.getSelfDID(),
+          document: document ?? null,
+        }));
+      }
+
+      if (msg.type === "did_issue_credential") {
+        const { subjectDID, credType, claim, expiresInMs } = msg;
+        if (!subjectDID || !credType || !claim) {
+          ws.send(JSON.stringify({ type: "error", message: "subjectDID, credType, and claim are required" }));
+          return;
+        }
+        try {
+          const credential = await agent.issueCredential({
+            subjectDID,
+            type: credType,
+            claim,
+            expiresInMs,
+          });
+          ws.send(JSON.stringify({ type: "credential_issued", credential }));
+        } catch (err) {
+          ws.send(JSON.stringify({ type: "error", message: (err as Error).message }));
+        }
+      }
+
+      if (msg.type === "did_verify_credential") {
+        const { credential } = msg;
+        if (!credential) {
+          ws.send(JSON.stringify({ type: "error", message: "credential is required" }));
+          return;
+        }
+        const result = agent.verifyCredential(credential);
+        ws.send(JSON.stringify({ type: "credential_verified", ...result, credentialId: credential.credentialId }));
+      }
+
+      if (msg.type === "did_list_credentials") {
+        const credentials = agent.getDIDCredentials();
+        ws.send(JSON.stringify({ type: "credentials_list", count: credentials.length, credentials }));
       }
 
       // Programmatic task delegation
