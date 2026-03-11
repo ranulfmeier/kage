@@ -111,6 +111,28 @@ app.get("/inbox", async (_req, res) => {
   }
 });
 
+app.get("/groups", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    const groups = agent.listGroups();
+    res.json({
+      count: groups.length,
+      groups: groups.map((g) => ({
+        groupId: g.group.groupId,
+        creator: g.group.creator.slice(0, 8) + "…",
+        threshold: g.group.threshold,
+        totalMembers: g.group.members.length,
+        entryCount: g.entries.length,
+        hasKey: agent.hasGroupKey(g.group.groupId),
+        explorerUrl: g.group.explorerUrl ?? null,
+        createdAt: new Date(g.group.createdAt).toLocaleTimeString(),
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 app.get("/tasks", async (_req, res) => {
   try {
     const agent = await getAgent();
@@ -256,6 +278,52 @@ wss.on("connection", async (ws: WebSocket) => {
         agent.deliverToInbox(encryptedMessage);
         const content = agent.receiveMessage(encryptedMessage);
         ws.send(JSON.stringify({ type: "message_received", content, messageId: encryptedMessage.messageId }));
+      }
+
+      // Create a group vault
+      if (msg.type === "group_create") {
+        const { members, threshold } = msg;
+        if (!members || !threshold) {
+          ws.send(JSON.stringify({ type: "error", message: "members and threshold are required" }));
+          return;
+        }
+        ws.send(JSON.stringify({ type: "typing" }));
+        const result = await agent.createGroup(members, threshold);
+        if (result.success && result.group) {
+          ws.send(JSON.stringify({ type: "group_created", group: result.group, explorerUrl: result.explorerUrl ?? null }));
+        } else {
+          ws.send(JSON.stringify({ type: "error", message: result.error ?? "Group creation failed" }));
+        }
+      }
+
+      // Store an entry in a group vault
+      if (msg.type === "group_store") {
+        const { groupId, content } = msg;
+        if (!groupId || content === undefined) {
+          ws.send(JSON.stringify({ type: "error", message: "groupId and content are required" }));
+          return;
+        }
+        const result = agent.storeGroupEntry(groupId, content);
+        if (result.success) {
+          ws.send(JSON.stringify({ type: "group_entry_stored", entryId: result.entryId, groupId }));
+        } else {
+          ws.send(JSON.stringify({ type: "error", message: result.error ?? "Store failed" }));
+        }
+      }
+
+      // Read all entries from a group vault
+      if (msg.type === "group_read") {
+        const { groupId } = msg;
+        if (!groupId) {
+          ws.send(JSON.stringify({ type: "error", message: "groupId is required" }));
+          return;
+        }
+        const result = agent.readGroupEntries(groupId);
+        if (result.success) {
+          ws.send(JSON.stringify({ type: "group_entries", groupId, entries: result.entries }));
+        } else {
+          ws.send(JSON.stringify({ type: "error", message: result.error ?? "Read failed" }));
+        }
       }
 
       // Programmatic task delegation

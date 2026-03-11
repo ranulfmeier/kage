@@ -5,3 +5,4 @@ export * from "./tiers.js";
 export * from "./umbra.js";
 export * from "./delegation.js";
 export * from "./messaging.js";
+export * from "./group-vault.js";

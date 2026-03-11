@@ -18,7 +18,11 @@ import {
   KageMessagingPlugin,
   createKageMessagingPlugin,
 } from "./plugins/kage-messaging.js";
-import { DelegationTask, DelegationEngine, AgentMessage, MessageContent } from "@kage/sdk";
+import {
+  KageGroupVaultPlugin,
+  createKageGroupVaultPlugin,
+} from "./plugins/kage-group-vault.js";
+import { DelegationTask, DelegationEngine, AgentMessage, MessageContent, GroupMember, GroupVaultGroup, GroupVaultStore } from "@kage/sdk";
 import {
   KageCharacter,
   AgentCharacter,
@@ -88,6 +92,7 @@ export class KageAgent {
   private privacyPlugin: KagePrivacyPlugin;
   private delegationPlugin: KageDelegationPlugin;
   private messagingPlugin: KageMessagingPlugin;
+  private groupVaultPlugin: KageGroupVaultPlugin;
   private anthropic: Anthropic;
   private conversationHistory: Message[] = [];
   private initialized = false;
@@ -114,9 +119,8 @@ export class KageAgent {
       rpcUrl: config.rpcUrl,
       programId: config.programId,
     });
-    this.messagingPlugin = createKageMessagingPlugin({
-      rpcUrl: config.rpcUrl,
-    });
+    this.messagingPlugin = createKageMessagingPlugin({ rpcUrl: config.rpcUrl });
+    this.groupVaultPlugin = createKageGroupVaultPlugin({ rpcUrl: config.rpcUrl });
     this.anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
   }
 
@@ -130,6 +134,7 @@ export class KageAgent {
     await this.privacyPlugin.initialize(this.keypair);
     await this.delegationPlugin.initialize(this.keypair);
     await this.messagingPlugin.initialize(this.keypair);
+    await this.groupVaultPlugin.initialize(this.keypair);
 
     this.initialized = true;
     console.log("[Kage] Agent initialized successfully");
@@ -361,6 +366,44 @@ export class KageAgent {
    */
   getUnreadMessages(): AgentMessage[] {
     return this.messagingPlugin.getUnreadMessages();
+  }
+
+  // ─── Group Vault ────────────────────────────────────────────────────────────
+
+  getGroupVaultX25519Key(): string {
+    return this.groupVaultPlugin.getX25519PublicKey();
+  }
+
+  async createGroup(members: GroupMember[], threshold: number) {
+    return this.groupVaultPlugin.createGroup(members, threshold);
+  }
+
+  loadGroup(group: GroupVaultGroup): void {
+    this.groupVaultPlugin.loadGroup(group);
+  }
+
+  decryptOwnShare(group: GroupVaultGroup) {
+    return this.groupVaultPlugin.decryptOwnShare(group);
+  }
+
+  reconstructKey(groupId: string, rawShares: Buffer[]) {
+    return this.groupVaultPlugin.reconstructKey(groupId, rawShares);
+  }
+
+  storeGroupEntry(groupId: string, content: unknown) {
+    return this.groupVaultPlugin.storeEntry(groupId, content);
+  }
+
+  readGroupEntries(groupId: string) {
+    return this.groupVaultPlugin.readAllEntries(groupId);
+  }
+
+  listGroups(): GroupVaultStore[] {
+    return this.groupVaultPlugin.listGroups();
+  }
+
+  hasGroupKey(groupId: string): boolean {
+    return this.groupVaultPlugin.hasKey(groupId);
   }
 }
 

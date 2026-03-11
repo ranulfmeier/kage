@@ -5,7 +5,7 @@ import { RouterLink } from 'vue-router';
 const WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3002';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
-type ActiveTab = 'chat' | 'delegation' | 'messaging';
+type ActiveTab = 'chat' | 'delegation' | 'messaging' | 'groups';
 
 interface StoreProof {
   cid?: string;
@@ -56,6 +56,34 @@ const delegTasks = ref<DelegationTaskUI[]>([]);
 const delegRecipient = ref('');
 const delegInstruction = ref('');
 const isDelegating = ref(false);
+
+// Group Vault state
+interface GroupUI {
+  groupId: string;
+  creator: string;
+  threshold: number;
+  totalMembers: number;
+  entryCount: number;
+  hasKey: boolean;
+  explorerUrl?: string;
+  createdAt: string;
+}
+interface GroupMemberInput {
+  solanaPubkey: string;
+  x25519Pubkey: string;
+}
+const groups = ref<GroupUI[]>([]);
+const groupMembers = ref<GroupMemberInput[]>([
+  { solanaPubkey: '', x25519Pubkey: '' },
+  { solanaPubkey: '', x25519Pubkey: '' },
+]);
+const groupThreshold = ref(2);
+const isCreatingGroup = ref(false);
+const activeGroupId = ref('');
+const groupContent = ref('');
+const isStoringEntry = ref(false);
+const groupEntries = ref<unknown[]>([]);
+const lastCreatedGroup = ref<unknown>(null);
 
 // Messaging state
 interface InboxMessage {
@@ -129,6 +157,18 @@ function connect() {
     } else if (msg.type === 'task_created') {
       isDelegating.value = false;
       delegTasks.value.unshift(msg.task as DelegationTaskUI);
+    } else if (msg.type === 'group_created') {
+      isCreatingGroup.value = false;
+      lastCreatedGroup.value = msg.group;
+      activeGroupId.value = msg.group.groupId;
+      fetchGroups();
+    } else if (msg.type === 'group_entry_stored') {
+      isStoringEntry.value = false;
+      groupContent.value = '';
+      fetchGroups();
+      if (activeGroupId.value) sendReadEntries(activeGroupId.value);
+    } else if (msg.type === 'group_entries') {
+      groupEntries.value = msg.entries ?? [];
     } else if (msg.type === 'message_sent') {
       isSendingMsg.value = false;
       sentMessages.value.unshift(msg.message);
@@ -241,6 +281,53 @@ function sendDelegate() {
     recipientPubkey: delegRecipient.value.trim(),
     instruction: delegInstruction.value.trim(),
   }));
+}
+
+async function fetchGroups() {
+  try {
+    const res = await fetch(`${API_URL}/groups`);
+    const data = await res.json();
+    groups.value = data.groups ?? [];
+  } catch {
+    groups.value = [];
+  }
+}
+
+function addMember() {
+  groupMembers.value.push({ solanaPubkey: '', x25519Pubkey: '' });
+}
+
+function removeMember(idx: number) {
+  if (groupMembers.value.length > 2) groupMembers.value.splice(idx, 1);
+}
+
+function sendCreateGroup() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const validMembers = groupMembers.value.filter(m => m.solanaPubkey.trim() && m.x25519Pubkey.trim());
+  if (validMembers.length < 2) return;
+  if (groupThreshold.value < 1 || groupThreshold.value > validMembers.length) return;
+  isCreatingGroup.value = true;
+  ws.send(JSON.stringify({
+    type: 'group_create',
+    members: validMembers.map(m => ({ solanaPubkey: m.solanaPubkey.trim(), x25519Pubkey: m.x25519Pubkey.trim() })),
+    threshold: groupThreshold.value,
+  }));
+}
+
+function sendStoreEntry() {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !activeGroupId.value || !groupContent.value.trim()) return;
+  isStoringEntry.value = true;
+  ws.send(JSON.stringify({ type: 'group_store', groupId: activeGroupId.value, content: groupContent.value.trim() }));
+}
+
+function sendReadEntries(groupId: string) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'group_read', groupId }));
+}
+
+function fillSelfAsMember() {
+  if (!agentId.value || !agentX25519Pub.value) return;
+  groupMembers.value[0] = { solanaPubkey: agentId.value, x25519Pubkey: agentX25519Pub.value };
 }
 
 async function fetchAgentX25519() {
@@ -391,6 +478,13 @@ onUnmounted(() => {
           :class="activeTab === 'messaging' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
         >
           Messaging
+        </button>
+        <button
+          @click="activeTab = 'groups'; fetchGroups(); fetchAgentX25519()"
+          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
+          :class="activeTab === 'groups' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
+        >
+          Group Vaults
         </button>
       </div>
 
@@ -757,6 +851,150 @@ onUnmounted(() => {
             <li>Message is encrypted with AES-256-GCM using that shared secret</li>
             <li>Only ciphertext + content hash are transmitted — hash anchored on Solana</li>
             <li>Recipient decrypts using their own X25519 key + sender's X25519 pub</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- ── GROUP VAULTS TAB ── -->
+      <div v-if="activeTab === 'groups'" class="space-y-4">
+
+        <!-- Self-fill hint -->
+        <div class="border border-stone-100 bg-stone-50 px-4 py-3 flex items-center justify-between gap-4">
+          <div class="text-xs text-stone-500">
+            <span class="font-mono text-stone-600">{{ agentId ? agentId.slice(0,16) + '…' : '—' }}</span>
+            <span class="text-stone-400 ml-2">X25519: {{ agentX25519Pub ? agentX25519Pub.slice(0,16) + '…' : '—' }}</span>
+          </div>
+          <button @click="fillSelfAsMember" class="text-xs text-stone-500 hover:text-stone-800 tracking-widest uppercase transition-colors border border-stone-200 px-3 py-1 whitespace-nowrap">
+            Use My Keys ↓
+          </button>
+        </div>
+
+        <!-- Create group form -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <p class="text-xs tracking-widest uppercase text-stone-400">Create Group Vault</p>
+            <div class="flex items-center gap-2 text-xs text-stone-500">
+              <span>Threshold:</span>
+              <input
+                v-model.number="groupThreshold"
+                type="number"
+                min="1"
+                :max="groupMembers.length"
+                class="w-12 bg-stone-50 border border-stone-200 px-2 py-1 text-center text-stone-700 outline-none focus:border-stone-400"
+              />
+              <span>of {{ groupMembers.length }}</span>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <div v-for="(m, idx) in groupMembers" :key="idx" class="flex gap-2 items-start">
+              <div class="flex-1 space-y-1">
+                <input
+                  v-model="m.solanaPubkey"
+                  :placeholder="`Member ${idx + 1} Solana address`"
+                  class="w-full bg-stone-50 border border-stone-200 px-3 py-1.5 text-xs font-mono text-stone-700 outline-none focus:border-stone-400 transition-colors"
+                />
+                <input
+                  v-model="m.x25519Pubkey"
+                  :placeholder="`Member ${idx + 1} X25519 public key`"
+                  class="w-full bg-stone-50 border border-stone-200 px-3 py-1.5 text-xs font-mono text-stone-700 outline-none focus:border-stone-400 transition-colors"
+                />
+              </div>
+              <button v-if="groupMembers.length > 2" @click="removeMember(idx)" class="text-stone-300 hover:text-red-400 transition-colors mt-1 text-lg leading-none">×</button>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button
+              @click="sendCreateGroup"
+              :disabled="!isConnected || isCreatingGroup"
+              class="px-5 py-2 bg-stone-800 text-stone-100 text-xs tracking-widest uppercase hover:bg-stone-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              {{ isCreatingGroup ? 'Creating…' : 'Create Vault' }}
+            </button>
+            <button @click="addMember" class="px-4 py-2 border border-stone-200 text-xs text-stone-500 hover:border-stone-400 transition-colors">
+              + Add Member
+            </button>
+            <p class="text-xs text-stone-400">Shamir {{ groupThreshold }}-of-{{ groupMembers.length }}</p>
+          </div>
+        </div>
+
+        <!-- Active groups list -->
+        <div v-if="groups.length > 0" class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <p class="text-xs tracking-widest uppercase text-stone-400">Active Groups</p>
+            <button @click="fetchGroups" class="text-xs text-stone-400 hover:text-stone-700 uppercase tracking-widest transition-colors">Refresh</button>
+          </div>
+          <div v-for="g in groups" :key="g.groupId"
+            class="border p-3 space-y-2 cursor-pointer transition-colors"
+            :class="activeGroupId === g.groupId ? 'border-stone-400 bg-stone-50' : 'border-stone-100 hover:border-stone-300'"
+            @click="activeGroupId = g.groupId; sendReadEntries(g.groupId)"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-mono text-xs text-stone-600">{{ g.groupId.slice(0, 28) }}…</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded"
+                :class="g.hasKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">
+                {{ g.hasKey ? '🔓 key ready' : '🔒 locked' }}
+              </span>
+            </div>
+            <div class="flex gap-4 text-xs text-stone-400">
+              <span>{{ g.threshold }}-of-{{ g.totalMembers }} threshold</span>
+              <span>{{ g.entryCount }} entries</span>
+              <span>{{ g.createdAt }}</span>
+            </div>
+            <a v-if="g.explorerUrl" :href="g.explorerUrl" target="_blank" @click.stop
+              class="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 transition-colors w-fit">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+              </svg>
+              Verify on Solscan
+            </a>
+          </div>
+        </div>
+
+        <!-- Write to active vault -->
+        <div v-if="activeGroupId" class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">
+            Write to Vault
+            <span class="font-mono normal-case ml-2 text-stone-500">{{ activeGroupId.slice(0,20) }}…</span>
+          </p>
+          <textarea
+            v-model="groupContent"
+            placeholder="Secret intel, trading signal, shared context…"
+            rows="3"
+            class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 outline-none focus:border-stone-400 resize-none"
+            style="font-family: inherit;"
+          ></textarea>
+          <button
+            @click="sendStoreEntry"
+            :disabled="!isConnected || !groupContent.trim() || isStoringEntry"
+            class="px-5 py-2 bg-stone-800 text-stone-100 text-xs tracking-widest uppercase hover:bg-stone-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            {{ isStoringEntry ? 'Encrypting…' : 'Store Encrypted' }}
+          </button>
+        </div>
+
+        <!-- Vault entries -->
+        <div v-if="groupEntries.length > 0" class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Decrypted Entries</p>
+          <div v-for="(e, idx) in groupEntries" :key="idx" class="border border-stone-100 p-3 space-y-1">
+            <div class="flex items-center justify-between text-xs text-stone-400">
+              <span class="font-mono">{{ (e as any).entryId?.slice(0,24) }}…</span>
+              <span>{{ (e as any).addedBy?.slice(0,8) }}… · {{ new Date((e as any).addedAt).toLocaleTimeString() }}</span>
+            </div>
+            <p class="text-sm text-stone-700 mt-1">{{ typeof (e as any).content === 'string' ? (e as any).content : JSON.stringify((e as any).content) }}</p>
+          </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="border border-stone-100 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">How Group Vaults Work</p>
+          <ol class="space-y-2 text-xs text-stone-500 list-decimal list-inside leading-relaxed">
+            <li>A random <span class="font-mono text-stone-600">groupKey</span> is generated and split into <em>n</em> shares via Shamir's Secret Sharing (GF256)</li>
+            <li>Each member receives their share encrypted with their X25519 public key</li>
+            <li>Vault content is encrypted with AES-256-GCM using the <span class="font-mono text-stone-600">groupKey</span></li>
+            <li>To read: collect <em>m</em> member shares → reconstruct groupKey → decrypt</li>
+            <li>Group membership hash is committed on Solana — verifiable without revealing members</li>
           </ol>
         </div>
       </div>
