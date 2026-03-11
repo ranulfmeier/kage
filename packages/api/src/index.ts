@@ -32,17 +32,23 @@ function loadOrCreateKeypair(): Keypair {
   return kp;
 }
 
+const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
+const SOLANA_NETWORK: "mainnet" | "devnet" = SOLANA_RPC_URL.includes("mainnet") ? "mainnet" : "devnet";
+console.log(`[Kage:API] Using RPC: ${SOLANA_RPC_URL.replace(/api-key=[^&]+/, "api-key=***")} (${SOLANA_NETWORK})`);
+
 async function ensureDevnetSol(keypair: Keypair): Promise<void> {
-  const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+  const connection = new Connection(SOLANA_RPC_URL, "confirmed");
   const balance = await connection.getBalance(keypair.publicKey);
   if (balance < 0.1 * LAMPORTS_PER_SOL) {
-    console.log(`[Kage:API] Low balance (${balance / LAMPORTS_PER_SOL} SOL), requesting airdrop...`);
-    try {
-      const sig = await connection.requestAirdrop(keypair.publicKey, LAMPORTS_PER_SOL);
-      await connection.confirmTransaction(sig);
-      console.log(`[Kage:API] Airdrop successful: 1 SOL`);
-    } catch {
-      console.warn("[Kage:API] Airdrop failed (rate limit?), continuing without Umbra");
+    console.log(`[Kage:API] Low balance (${balance / LAMPORTS_PER_SOL} SOL)${SOLANA_NETWORK === "devnet" ? ", requesting airdrop..." : " — mainnet, skipping airdrop"}`);
+    if (SOLANA_NETWORK === "devnet") {
+      try {
+        const sig = await connection.requestAirdrop(keypair.publicKey, LAMPORTS_PER_SOL);
+        await connection.confirmTransaction(sig);
+        console.log(`[Kage:API] Airdrop successful: 1 SOL`);
+      } catch {
+        console.warn("[Kage:API] Airdrop failed (rate limit?), continuing without Umbra");
+      }
     }
   } else {
     console.log(`[Kage:API] Agent balance: ${(balance / LAMPORTS_PER_SOL).toFixed(3)} SOL`);
@@ -182,6 +188,50 @@ app.post("/pay", async (req, res) => {
   }
 });
 
+app.get("/reasoning", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    const traces = agent.getAllReasoningTraces();
+    res.json({
+      count: traces.length,
+      traces: traces.map((t) => ({
+        traceId: t.traceId,
+        charCount: t.charCount,
+        contentHash: t.contentHash,
+        txSignature: t.txSignature ?? null,
+        explorerUrl: t.explorerUrl ?? null,
+        createdAt: new Date(t.createdAt).toLocaleTimeString(),
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/reasoning/:traceId/reveal", async (req, res) => {
+  try {
+    const { traceId } = req.params;
+    const { auditKey } = req.body;
+    const agent = await getAgent();
+    const result = auditKey
+      ? agent.revealReasoningWithAuditKey(traceId, auditKey)
+      : agent.revealReasoning(traceId);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: String(err) });
+  }
+});
+
+app.get("/reasoning/audit-key", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    const key = agent.exportReasoningAuditKey();
+    res.json({ auditKey: key });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 app.get("/tasks", async (_req, res) => {
   try {
     const agent = await getAgent();
@@ -211,12 +261,12 @@ async function getAgent(): Promise<KageAgent> {
   await ensureDevnetSol(sharedKeypair);
   sharedAgent = createKageAgent(
     {
-      rpcUrl: "https://api.devnet.solana.com",
+      rpcUrl: SOLANA_RPC_URL,
       programId: KAGE_PROGRAM_ID,
       ipfsGateway: "https://ipfs.io",
-      umbraNetwork: "devnet",
+      umbraNetwork: SOLANA_NETWORK,
       anthropicApiKey: ANTHROPIC_API_KEY,
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-sonnet-4-5-20251001",
     },
     sharedKeypair
   );
@@ -288,6 +338,7 @@ wss.on("connection", async (ws: WebSocket) => {
             role: "assistant",
             text: response.text,
             proof: response.proof ?? null,
+            reasoning: response.reasoning ?? null,
           })
         );
       }
