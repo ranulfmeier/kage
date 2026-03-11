@@ -37,7 +37,7 @@ const phases = [
       { text: 'Shielded task delegation', done: true },
       { text: 'Encrypted agent-to-agent messaging', done: true },
       { text: 'Group vaults', done: true },
-      { text: 'Private payment channels', done: false },
+      { text: 'Private payment channels', done: true },
     ],
   },
   {

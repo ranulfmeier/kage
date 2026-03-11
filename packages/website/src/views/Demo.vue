@@ -5,7 +5,7 @@ import { RouterLink } from 'vue-router';
 const WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3002';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
-type ActiveTab = 'chat' | 'delegation' | 'messaging' | 'groups';
+type ActiveTab = 'chat' | 'delegation' | 'messaging' | 'groups' | 'payments';
 
 interface StoreProof {
   cid?: string;
@@ -175,7 +175,18 @@ function connect() {
       msgText.value = '';
     } else if (msg.type === 'message_received') {
       fetchInbox();
+    } else if (msg.type === 'payment_sent') {
+      isSendingPayment.value = false;
+      lastPayment.value = msg.payment;
+      payAmount.value = '';
+      payMemo.value = '';
+      fetchPayments();
+    } else if (msg.type === 'scan_results') {
+      isScanning.value = false;
+      fetchPayments();
     } else if (msg.type === 'error') {
+      isSendingPayment.value = false;
+      isScanning.value = false;
       isDelegating.value = false;
       isSendingMsg.value = false;
       isTyping.value = false;
@@ -362,6 +373,65 @@ function sendEncryptedMessage() {
   }));
 }
 
+// ─── Payment state ────────────────────────────────────────────────────────────
+interface PaymentUI {
+  paymentId: string;
+  direction: 'sent' | 'received';
+  stealthAddress: string;
+  amountLamports: number;
+  amountSol: string;
+  explorerUrl?: string;
+  createdAt: string;
+}
+
+const payViewingKey = ref('');
+const payRecipientSolana = ref('');
+const payRecipientViewing = ref('');
+const payAmount = ref('');
+const payMemo = ref('');
+const isSendingPayment = ref(false);
+const isScanning = ref(false);
+const payments = ref<PaymentUI[]>([]);
+const lastPayment = ref<{ stealthAddress: string; ephemeralPub: string; explorerUrl?: string } | null>(null);
+
+async function fetchPayments() {
+  try {
+    const res = await fetch(`${API_URL}/payments`);
+    const data = await res.json();
+    payViewingKey.value = data.viewingPublicKey ?? '';
+    payments.value = data.payments ?? [];
+  } catch {
+    payments.value = [];
+  }
+}
+
+function sendShieldedPay() {
+  if (!payRecipientSolana.value.trim() || !payRecipientViewing.value.trim() || !payAmount.value) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const lamports = Math.round(parseFloat(payAmount.value) * 1e9);
+  if (isNaN(lamports) || lamports <= 0) return;
+  isSendingPayment.value = true;
+  ws.send(JSON.stringify({
+    type: 'shielded_pay',
+    recipientPubkey: payRecipientSolana.value.trim(),
+    recipientViewingPub: payRecipientViewing.value.trim(),
+    amountLamports: lamports,
+    memo: payMemo.value.trim() || undefined,
+  }));
+}
+
+function sendScanPayments() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  isScanning.value = true;
+  ws.send(JSON.stringify({ type: 'scan_payments' }));
+}
+
+function fillSelfAsRecipient() {
+  if (!agentId.value || !payViewingKey.value) return;
+  payRecipientSolana.value = agentId.value;
+  payRecipientViewing.value = payViewingKey.value;
+}
+
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text);
 }
@@ -376,6 +446,7 @@ function statusColor(status: string) {
 onMounted(() => {
   connect();
   fetchAgentX25519();
+  fetchPayments();
 });
 
 onUnmounted(() => {
@@ -485,6 +556,13 @@ onUnmounted(() => {
           :class="activeTab === 'groups' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
         >
           Group Vaults
+        </button>
+        <button
+          @click="activeTab = 'payments'; fetchPayments()"
+          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
+          :class="activeTab === 'payments' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
+        >
+          Payments
         </button>
       </div>
 
@@ -995,6 +1073,154 @@ onUnmounted(() => {
             <li>Vault content is encrypted with AES-256-GCM using the <span class="font-mono text-stone-600">groupKey</span></li>
             <li>To read: collect <em>m</em> member shares → reconstruct groupKey → decrypt</li>
             <li>Group membership hash is committed on Solana — verifiable without revealing members</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- ─── Payments Tab ─────────────────────────────────────────────────── -->
+      <div v-if="activeTab === 'payments'" class="space-y-4">
+
+        <!-- Agent viewing key -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Agent Stealth Viewing Key</p>
+          <p class="text-xs text-stone-400 leading-relaxed">Share this key with senders so they can derive one-time stealth addresses for you. Only you can scan and claim funds sent to those addresses.</p>
+          <div v-if="payViewingKey" class="space-y-2">
+            <div class="flex items-center gap-2">
+              <code class="text-xs font-mono text-stone-600 bg-stone-50 border border-stone-200 px-3 py-2 flex-1 break-all">{{ payViewingKey }}</code>
+              <button @click="copyToClipboard(payViewingKey)" class="px-3 py-2 border border-stone-200 text-xs text-stone-500 hover:text-stone-800 hover:border-stone-400 transition-colors flex-shrink-0">Copy</button>
+            </div>
+          </div>
+          <div v-else class="text-xs text-stone-400">Connecting…</div>
+        </div>
+
+        <!-- Send shielded payment -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <p class="text-xs tracking-widest uppercase text-stone-400">Send Shielded SOL</p>
+            <button
+              @click="fillSelfAsRecipient"
+              class="text-xs text-stone-400 hover:text-stone-700 underline underline-offset-2 transition-colors"
+            >Use My Keys (self-test)</button>
+          </div>
+
+          <div class="grid grid-cols-1 gap-3">
+            <div>
+              <label class="text-xs text-stone-400 tracking-wide block mb-1">Recipient Solana Pubkey</label>
+              <input
+                v-model="payRecipientSolana"
+                placeholder="Base58 address…"
+                class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 font-mono outline-none focus:border-stone-400"
+                style="font-family: 'JetBrains Mono', monospace;"
+              />
+            </div>
+            <div>
+              <label class="text-xs text-stone-400 tracking-wide block mb-1">Recipient Viewing Key (X25519, base64)</label>
+              <input
+                v-model="payRecipientViewing"
+                placeholder="Base64 X25519 public key…"
+                class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 font-mono outline-none focus:border-stone-400"
+                style="font-family: 'JetBrains Mono', monospace;"
+              />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-stone-400 tracking-wide block mb-1">Amount (SOL)</label>
+                <input
+                  v-model="payAmount"
+                  type="number"
+                  step="0.001"
+                  min="0.001"
+                  placeholder="0.01"
+                  class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 outline-none focus:border-stone-400"
+                />
+              </div>
+              <div>
+                <label class="text-xs text-stone-400 tracking-wide block mb-1">Memo (optional)</label>
+                <input
+                  v-model="payMemo"
+                  placeholder="trading fee, bounty…"
+                  class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 outline-none focus:border-stone-400"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="flex gap-3">
+            <button
+              @click="sendShieldedPay"
+              :disabled="!isConnected || !payRecipientSolana.trim() || !payRecipientViewing.trim() || !payAmount || isSendingPayment"
+              class="flex-1 py-2 bg-stone-800 text-stone-100 text-xs tracking-widest uppercase hover:bg-stone-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              {{ isSendingPayment ? 'Sending…' : 'Send Shielded Payment' }}
+            </button>
+            <button
+              @click="sendScanPayments"
+              :disabled="!isConnected || isScanning"
+              class="px-4 py-2 border border-stone-300 text-stone-600 text-xs tracking-widest uppercase hover:border-stone-500 hover:text-stone-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              {{ isScanning ? 'Scanning…' : 'Scan Inbox' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Last payment result -->
+        <div v-if="lastPayment" class="border border-emerald-200 bg-emerald-50/60 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-emerald-600">Payment Sent</p>
+          <div class="space-y-2 text-xs">
+            <div>
+              <span class="text-stone-400">Stealth address:</span>
+              <code class="font-mono text-stone-700 ml-2 break-all">{{ lastPayment.stealthAddress }}</code>
+            </div>
+            <div>
+              <span class="text-stone-400">Ephemeral pub:</span>
+              <code class="font-mono text-stone-600 ml-2 break-all text-xs">{{ lastPayment.ephemeralPub }}</code>
+            </div>
+            <p class="text-stone-400 italic">Only the recipient can derive this address from their viewing key.</p>
+          </div>
+          <a v-if="lastPayment.explorerUrl" :href="lastPayment.explorerUrl" target="_blank"
+            class="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 transition-colors w-fit">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+            </svg>
+            Verify on Solscan
+          </a>
+        </div>
+
+        <!-- Payment history -->
+        <div v-if="payments.length > 0" class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Payment History</p>
+          <div class="space-y-2">
+            <div v-for="p in payments" :key="p.paymentId" class="border border-stone-100 p-3 flex items-center justify-between gap-3">
+              <div class="space-y-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs px-2 py-0.5 rounded-full" :class="p.direction === 'sent' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'">
+                    {{ p.direction === 'sent' ? '↑ Sent' : '↓ Received' }}
+                  </span>
+                  <span class="text-xs font-semibold text-stone-700">{{ p.amountSol }} SOL</span>
+                  <span class="text-xs text-stone-400">{{ p.createdAt }}</span>
+                </div>
+                <code class="text-xs font-mono text-stone-500 truncate block">{{ p.stealthAddress }}</code>
+              </div>
+              <a v-if="p.explorerUrl" :href="p.explorerUrl" target="_blank"
+                class="flex-shrink-0 text-xs text-emerald-600 hover:text-emerald-700 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="border border-stone-100 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">How Shielded Payments Work</p>
+          <ol class="space-y-2 text-xs text-stone-500 list-decimal list-inside leading-relaxed">
+            <li>Sender generates a fresh <span class="font-mono text-stone-600">ephemeralKeypair</span></li>
+            <li>Shared secret = <span class="font-mono text-stone-600">X25519(ephemeral_priv, recipient_view_pub)</span></li>
+            <li>One-time stealth address = <span class="font-mono text-stone-600">Ed25519(SHA-256(shared))</span></li>
+            <li>SOL is sent to stealth address — on-chain link to recipient's identity is broken</li>
+            <li>Recipient scans with viewing key: <span class="font-mono text-stone-600">X25519(view_priv, ephemeral_pub)</span> → derives same address</li>
+            <li>Recipient claims by signing a sweep transaction from the stealth keypair</li>
           </ol>
         </div>
       </div>

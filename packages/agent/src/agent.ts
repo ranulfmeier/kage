@@ -22,7 +22,10 @@ import {
   KageGroupVaultPlugin,
   createKageGroupVaultPlugin,
 } from "./plugins/kage-group-vault.js";
-import { DelegationTask, DelegationEngine, AgentMessage, MessageContent, GroupMember, GroupVaultGroup, GroupVaultStore } from "@kage/sdk";
+import {
+  KagePaymentPlugin,
+} from "./plugins/kage-payment.js";
+import { DelegationTask, DelegationEngine, AgentMessage, MessageContent, GroupMember, GroupVaultGroup, GroupVaultStore, ShieldedPayment, ScanResult } from "@kage/sdk";
 import {
   KageCharacter,
   AgentCharacter,
@@ -93,6 +96,7 @@ export class KageAgent {
   private delegationPlugin: KageDelegationPlugin;
   private messagingPlugin: KageMessagingPlugin;
   private groupVaultPlugin: KageGroupVaultPlugin;
+  private paymentPlugin: KagePaymentPlugin;
   private anthropic: Anthropic;
   private conversationHistory: Message[] = [];
   private initialized = false;
@@ -121,6 +125,7 @@ export class KageAgent {
     });
     this.messagingPlugin = createKageMessagingPlugin({ rpcUrl: config.rpcUrl });
     this.groupVaultPlugin = createKageGroupVaultPlugin({ rpcUrl: config.rpcUrl });
+    this.paymentPlugin = new KagePaymentPlugin({ rpcUrl: config.rpcUrl });
     this.anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
   }
 
@@ -135,6 +140,7 @@ export class KageAgent {
     await this.delegationPlugin.initialize(this.keypair);
     await this.messagingPlugin.initialize(this.keypair);
     await this.groupVaultPlugin.initialize(this.keypair);
+    await this.paymentPlugin.initialize(this.keypair);
 
     this.initialized = true;
     console.log("[Kage] Agent initialized successfully");
@@ -404,6 +410,42 @@ export class KageAgent {
 
   hasGroupKey(groupId: string): boolean {
     return this.groupVaultPlugin.hasKey(groupId);
+  }
+
+  // ─── Shielded Payments ───────────────────────────────────────────────────────
+
+  getPaymentViewingKey(): string {
+    return this.paymentPlugin.getViewingPublicKey();
+  }
+
+  async shieldedTransfer(
+    recipientSolanaPubkey: string,
+    recipientViewingPub: string,
+    amountLamports: number,
+    memo?: string
+  ): Promise<ShieldedPayment> {
+    return this.paymentPlugin.shieldedTransfer(
+      recipientSolanaPubkey,
+      recipientViewingPub,
+      amountLamports,
+      memo
+    );
+  }
+
+  deriveStealthAddress(recipientViewingPub: string): { stealthAddress: string; ephemeralPub: string } {
+    return this.paymentPlugin.deriveStealthAddress(recipientViewingPub);
+  }
+
+  async scanForPayments(limit?: number): Promise<ScanResult[]> {
+    return this.paymentPlugin.scanForPayments(limit);
+  }
+
+  async claimPayment(ephemeralPubBase64: string): Promise<string> {
+    return this.paymentPlugin.claimPayment(ephemeralPubBase64);
+  }
+
+  getPaymentHistory(): ShieldedPayment[] {
+    return this.paymentPlugin.getAllPayments();
   }
 }
 

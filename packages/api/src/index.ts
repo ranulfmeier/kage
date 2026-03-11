@@ -133,6 +133,55 @@ app.get("/groups", async (_req, res) => {
   }
 });
 
+app.get("/payments", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    const payments = agent.getPaymentHistory();
+    res.json({
+      count: payments.length,
+      viewingPublicKey: agent.getPaymentViewingKey(),
+      payments: payments.map((p) => ({
+        paymentId: p.paymentId,
+        direction: p.direction,
+        stealthAddress: p.stealthAddress,
+        amountLamports: p.amountLamports,
+        amountSol: (p.amountLamports / 1e9).toFixed(6),
+        explorerUrl: p.explorerUrl ?? null,
+        createdAt: new Date(p.createdAt).toLocaleTimeString(),
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/pay", async (req, res) => {
+  try {
+    const { recipientPubkey, recipientViewingPub, amountLamports, memo } = req.body;
+    if (!recipientPubkey || !recipientViewingPub || !amountLamports) {
+      res.status(400).json({ error: "recipientPubkey, recipientViewingPub, and amountLamports are required" });
+      return;
+    }
+    const agent = await getAgent();
+    const payment = await agent.shieldedTransfer(
+      recipientPubkey,
+      recipientViewingPub,
+      Number(amountLamports),
+      memo
+    );
+    res.json({
+      paymentId: payment.paymentId,
+      stealthAddress: payment.stealthAddress,
+      ephemeralPub: payment.ephemeralPub,
+      amountLamports: payment.amountLamports,
+      txSignature: payment.txSignature ?? null,
+      explorerUrl: payment.explorerUrl ?? null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 app.get("/tasks", async (_req, res) => {
   try {
     const agent = await getAgent();
@@ -324,6 +373,53 @@ wss.on("connection", async (ws: WebSocket) => {
         } else {
           ws.send(JSON.stringify({ type: "error", message: result.error ?? "Read failed" }));
         }
+      }
+
+      // Shielded SOL payment via stealth address
+      if (msg.type === "shielded_pay") {
+        const { recipientPubkey, recipientViewingPub, amountLamports, memo } = msg;
+        if (!recipientPubkey || !recipientViewingPub || !amountLamports) {
+          ws.send(JSON.stringify({ type: "error", message: "recipientPubkey, recipientViewingPub, and amountLamports are required" }));
+          return;
+        }
+        ws.send(JSON.stringify({ type: "typing" }));
+        const payment = await agent.shieldedTransfer(
+          recipientPubkey,
+          recipientViewingPub,
+          Number(amountLamports),
+          memo
+        );
+        ws.send(JSON.stringify({
+          type: "payment_sent",
+          payment: {
+            paymentId: payment.paymentId,
+            stealthAddress: payment.stealthAddress,
+            ephemeralPub: payment.ephemeralPub,
+            amountLamports: payment.amountLamports,
+            amountSol: (payment.amountLamports / 1e9).toFixed(6),
+            txSignature: payment.txSignature ?? null,
+            explorerUrl: payment.explorerUrl ?? null,
+          },
+        }));
+      }
+
+      // Scan for incoming stealth payments
+      if (msg.type === "scan_payments") {
+        ws.send(JSON.stringify({ type: "typing" }));
+        const results = await agent.scanForPayments(msg.limit ?? 50);
+        ws.send(JSON.stringify({
+          type: "scan_results",
+          count: results.length,
+          results: results.map((r) => ({
+            paymentId: r.paymentId,
+            stealthAddress: r.stealthAddress,
+            ephemeralPub: r.ephemeralPub,
+            amountLamports: r.amountLamports,
+            amountSol: (r.amountLamports / 1e9).toFixed(6),
+            txSignature: r.txSignature,
+            explorerUrl: r.explorerUrl,
+          })),
+        }));
       }
 
       // Programmatic task delegation
