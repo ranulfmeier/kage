@@ -16,11 +16,20 @@ interface StoreProof {
   delegatedTo?: string;
 }
 
+interface ReasoningProof {
+  traceId: string;
+  charCount: number;
+  contentHash: string;
+  txSignature?: string;
+  explorerUrl?: string;
+}
+
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   text: string;
   time: string;
   proof?: StoreProof | null;
+  reasoning?: ReasoningProof | null;
 }
 
 interface Memory {
@@ -101,6 +110,10 @@ const isSendingMsg = ref(false);
 const inbox = ref<InboxMessage[]>([]);
 const sentMessages = ref<{ messageId: string; to: string; explorerUrl?: string }[]>([]);
 
+// Deep Think & reasoning step state
+const deepThinkEnabled = ref(false);
+const liveReasoningSteps = ref<string[]>([]);
+
 let ws: WebSocket | null = null;
 
 function now() {
@@ -133,6 +146,7 @@ function connect() {
 
     if (msg.type === 'connected') {
       agentId.value = msg.agentId;
+      deepThinkEnabled.value = msg.deepThink ?? false;
       messages.value.push({
         role: 'system',
         text: `Agent connected. ID: ${msg.agentId.slice(0, 12)}…`,
@@ -140,15 +154,23 @@ function connect() {
       });
       scrollToBottom();
     } else if (msg.type === 'typing') {
+      liveReasoningSteps.value = [];
       isTyping.value = true;
       scrollToBottom();
+    } else if (msg.type === 'reasoning_step') {
+      liveReasoningSteps.value.push(msg.content);
+      scrollToBottom();
+    } else if (msg.type === 'deep_think_status') {
+      deepThinkEnabled.value = msg.enabled;
     } else if (msg.type === 'message') {
       isTyping.value = false;
+      liveReasoningSteps.value = [];
       messages.value.push({
         role: 'assistant',
         text: msg.text,
         time: now(),
         proof: msg.proof ?? null,
+        reasoning: msg.reasoning ?? null,
       });
       scrollToBottom();
     } else if (msg.type === 'memories') {
@@ -218,6 +240,13 @@ function connect() {
     });
     scrollToBottom();
   };
+}
+
+function toggleDeepThink() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const next = !deepThinkEnabled.value;
+  ws.send(JSON.stringify({ type: 'toggle_deep_think', enabled: next }));
+  deepThinkEnabled.value = next;
 }
 
 function send() {
@@ -432,6 +461,42 @@ function fillSelfAsRecipient() {
   payRecipientViewing.value = payViewingKey.value;
 }
 
+// ─── Reasoning audit state ───────────────────────────────────────────────────
+const auditKey = ref('');
+const auditTraceId = ref('');
+const auditResult = ref<{ reasoning: string; charCount: number; contentHash: string; verified: boolean } | null>(null);
+const isRevealing = ref(false);
+const auditError = ref('');
+
+async function revealReasoning(traceId: string) {
+  auditTraceId.value = traceId;
+  auditResult.value = null;
+  auditError.value = '';
+  isRevealing.value = true;
+  try {
+    const body: Record<string, string> = {};
+    if (auditKey.value.trim()) body.auditKey = auditKey.value.trim();
+    const res = await fetch(`${API_URL}/reasoning/${traceId}/reveal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.error) { auditError.value = data.error; }
+    else { auditResult.value = data; }
+  } catch (e) {
+    auditError.value = String(e);
+  } finally {
+    isRevealing.value = false;
+  }
+}
+
+function closeAudit() {
+  auditResult.value = null;
+  auditError.value = '';
+  auditTraceId.value = '';
+}
+
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text);
 }
@@ -637,6 +702,32 @@ onUnmounted(() => {
                 <div class="bg-stone-50 border border-stone-200 px-4 py-3 text-sm text-stone-700 leading-relaxed rounded-sm whitespace-pre-wrap">
                   {{ msg.text }}
                 </div>
+                <!-- Hidden Reasoning badge -->
+                <div v-if="msg.reasoning" class="mt-2 border border-stone-200 bg-stone-50/80 px-3 py-2.5 text-xs space-y-1.5">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-stone-400 font-mono">🔒</span>
+                      <span class="text-stone-500 tracking-widest uppercase text-[10px] font-medium">Reasoning Hidden</span>
+                      <span class="text-stone-400 font-mono text-[10px]">{{ msg.reasoning.charCount }} chars encrypted</span>
+                    </div>
+                    <button
+                      @click="revealReasoning(msg.reasoning!.traceId)"
+                      class="text-[10px] tracking-widest uppercase text-stone-400 hover:text-stone-700 underline underline-offset-2 transition-colors"
+                    >Reveal</button>
+                  </div>
+                  <div class="flex items-center gap-2 text-stone-400">
+                    <span class="flex-shrink-0">Hash</span>
+                    <span class="font-mono truncate text-[10px]">{{ msg.reasoning.contentHash.slice(0, 32) }}…</span>
+                  </div>
+                  <a v-if="msg.reasoning.explorerUrl" :href="msg.reasoning.explorerUrl" target="_blank"
+                    class="flex items-center gap-1 text-[10px] text-emerald-600 hover:text-emerald-700 transition-colors">
+                    <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                    </svg>
+                    Verify commitment on Solscan
+                  </a>
+                </div>
+
                 <!-- Proof panel -->
                 <div v-if="msg.proof && (msg.proof.explorerUrl || msg.proof.umbraProof || msg.proof.cid)" class="mt-2 border border-emerald-100 bg-emerald-50/60 px-3 py-2.5 text-xs space-y-1.5">
                   <p class="text-emerald-700 font-medium tracking-wide uppercase text-[10px]">On-chain Proof</p>
@@ -665,14 +756,40 @@ onUnmounted(() => {
             </div>
           </template>
 
-          <!-- Typing indicator -->
+          <!-- Typing / reasoning steps indicator -->
           <div v-if="isTyping" class="flex justify-start">
-            <div class="bg-stone-50 border border-stone-200 px-4 py-3 rounded-sm">
-              <div class="flex gap-1 items-center">
-                <div class="w-1.5 h-1.5 bg-stone-400 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
-                <div class="w-1.5 h-1.5 bg-stone-400 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
-                <div class="w-1.5 h-1.5 bg-stone-400 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
+            <div class="bg-stone-50 border border-stone-200 px-4 py-3 rounded-sm max-w-[85%] space-y-2">
+              <!-- Header -->
+              <div class="flex gap-1.5 items-center">
+                <div class="w-1.5 h-1.5 rounded-full animate-bounce"
+                  :class="deepThinkEnabled ? 'bg-violet-500' : 'bg-stone-400'"
+                  style="animation-delay: 0ms"></div>
+                <div class="w-1.5 h-1.5 rounded-full animate-bounce"
+                  :class="deepThinkEnabled ? 'bg-violet-500' : 'bg-stone-400'"
+                  style="animation-delay: 150ms"></div>
+                <div class="w-1.5 h-1.5 rounded-full animate-bounce"
+                  :class="deepThinkEnabled ? 'bg-violet-500' : 'bg-stone-400'"
+                  style="animation-delay: 300ms"></div>
+                <span class="text-xs ml-1" :class="deepThinkEnabled ? 'text-violet-500' : 'text-stone-400'">
+                  {{ deepThinkEnabled ? 'Deep thinking…' : 'Thinking…' }}
+                </span>
               </div>
+              <!-- Live reasoning steps -->
+              <transition-group
+                v-if="liveReasoningSteps.length > 0"
+                name="step-fade"
+                tag="ol"
+                class="space-y-1 list-none pl-0"
+              >
+                <li
+                  v-for="(step, i) in liveReasoningSteps"
+                  :key="i"
+                  class="text-xs text-stone-500 font-mono leading-relaxed flex gap-2"
+                >
+                  <span class="text-stone-300 select-none">{{ i + 1 }}.</span>
+                  <span>{{ step.replace(/^\d+[\.\)]\s*/, '') }}</span>
+                </li>
+              </transition-group>
             </div>
           </div>
         </div>
@@ -689,6 +806,18 @@ onUnmounted(() => {
               class="flex-1 resize-none bg-transparent text-sm text-stone-800 placeholder-stone-300 outline-none leading-relaxed"
               style="font-family: inherit;"
             ></textarea>
+            <!-- Deep Think toggle -->
+            <button
+              @click="toggleDeepThink"
+              :disabled="!isConnected"
+              :title="deepThinkEnabled ? 'Deep Think ON — click to disable' : 'Enable Deep Think (Extended Thinking)'"
+              class="px-3 py-2.5 text-xs tracking-widest uppercase border transition-colors flex-shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
+              :class="deepThinkEnabled
+                ? 'bg-violet-800 text-violet-100 border-violet-800 hover:bg-violet-900'
+                : 'bg-transparent text-stone-400 border-stone-200 hover:border-stone-400 hover:text-stone-600'"
+            >
+              {{ deepThinkEnabled ? '🧠 Deep' : '🧠' }}
+            </button>
             <button
               @click="send"
               :disabled="!isConnected || !input.trim()"
@@ -699,6 +828,7 @@ onUnmounted(() => {
           </div>
           <p class="text-xs text-stone-400 mt-2">
             Try <span class="font-mono text-stone-500">/memories</span> · or: <span class="font-mono text-stone-500">delegate &lt;task&gt; to &lt;pubkey&gt;</span>
+            · <span :class="deepThinkEnabled ? 'text-violet-500 font-medium' : 'text-stone-400'">🧠 Deep Think {{ deepThinkEnabled ? 'ON' : 'OFF' }}</span>
           </p>
         </div>
       </div>
@@ -1225,6 +1355,54 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- ─── Reasoning Audit Modal ────────────────────────────────────────── -->
+      <div v-if="auditTraceId" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div class="bg-[#F5F0E8] border border-stone-300 w-full max-w-lg p-6 space-y-4" style="font-family: 'Shippori Mincho', serif;">
+          <div class="flex items-center justify-between">
+            <p class="text-xs tracking-widest uppercase text-stone-500">Reveal Hidden Reasoning</p>
+            <button @click="closeAudit" class="text-stone-400 hover:text-stone-700">✕</button>
+          </div>
+
+          <div class="space-y-1 text-xs text-stone-400">
+            <p>Trace ID: <span class="font-mono text-stone-600">{{ auditTraceId.slice(0, 32) }}…</span></p>
+          </div>
+
+          <div class="space-y-2">
+            <label class="text-xs text-stone-400 tracking-wide block">Audit Key (optional — leave empty to reveal as agent)</label>
+            <div class="flex gap-2">
+              <input
+                v-model="auditKey"
+                placeholder="Base64 audit key… or leave empty"
+                class="flex-1 bg-white border border-stone-200 px-3 py-2 text-xs font-mono text-stone-700 outline-none focus:border-stone-400"
+              />
+              <button
+                @click="revealReasoning(auditTraceId)"
+                :disabled="isRevealing"
+                class="px-4 py-2 bg-stone-800 text-stone-100 text-xs tracking-widest uppercase hover:bg-stone-900 disabled:opacity-50 transition-colors flex-shrink-0"
+              >{{ isRevealing ? 'Decrypting…' : 'Reveal' }}</button>
+            </div>
+          </div>
+
+          <!-- Error -->
+          <div v-if="auditError" class="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+            {{ auditError }}
+          </div>
+
+          <!-- Result -->
+          <div v-if="auditResult" class="space-y-3">
+            <div class="flex items-center gap-2">
+              <span class="text-xs px-2 py-0.5 rounded-full" :class="auditResult.verified ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'">
+                {{ auditResult.verified ? '✓ Hash verified' : '✗ Hash mismatch' }}
+              </span>
+              <span class="text-xs text-stone-400">{{ auditResult.charCount }} chars</span>
+            </div>
+            <div class="bg-white border border-stone-200 p-3 text-xs text-stone-700 leading-relaxed max-h-60 overflow-y-auto whitespace-pre-wrap font-mono">
+              {{ auditResult.reasoning }}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Info Row -->
       <div class="mt-8 grid grid-cols-3 gap-4 text-center">
         <div class="border border-stone-200 p-4">
@@ -1237,7 +1415,7 @@ onUnmounted(() => {
         </div>
         <div class="border border-stone-200 p-4">
           <p class="text-xs tracking-widest uppercase text-stone-400 mb-1">Model</p>
-          <p class="text-sm text-stone-700">Claude Haiku</p>
+          <p class="text-sm text-stone-700">{{ deepThinkEnabled ? 'Claude 3.7 Sonnet' : 'Claude Haiku' }}</p>
         </div>
       </div>
 
@@ -1245,3 +1423,18 @@ onUnmounted(() => {
 
   </div>
 </template>
+
+<style scoped>
+/* Reasoning step slide-in animation */
+.step-fade-enter-active {
+  transition: all 0.35s ease;
+}
+.step-fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.step-fade-enter-to {
+  opacity: 1;
+  transform: translateY(0);
+}
+</style>

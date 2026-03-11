@@ -32,7 +32,7 @@ const phases = [
   {
     number: '参',
     name: 'Multi-Agent',
-    status: 'current',
+    status: 'done',
     items: [
       { text: 'Shielded task delegation', done: true },
       { text: 'Encrypted agent-to-agent messaging', done: true },
@@ -43,7 +43,7 @@ const phases = [
   {
     number: '肆',
     name: 'Advanced Privacy',
-    status: 'future',
+    status: 'current',
     items: [
       { text: 'zkVM integration (SP1/Risc0)', done: false },
       { text: 'Hidden reasoning traces', done: false },

@@ -25,7 +25,11 @@ import {
 import {
   KagePaymentPlugin,
 } from "./plugins/kage-payment.js";
-import { DelegationTask, DelegationEngine, AgentMessage, MessageContent, GroupMember, GroupVaultGroup, GroupVaultStore, ShieldedPayment, ScanResult } from "@kage/sdk";
+import {
+  KageReasoningPlugin,
+  createKageReasoningPlugin,
+} from "./plugins/kage-reasoning.js";
+import { DelegationTask, DelegationEngine, AgentMessage, MessageContent, GroupMember, GroupVaultGroup, GroupVaultStore, ShieldedPayment, ScanResult, ReasoningTrace } from "@kage/sdk";
 import {
   KageCharacter,
   AgentCharacter,
@@ -76,11 +80,25 @@ export interface StoreProof {
 }
 
 /**
+ * Hidden reasoning proof attached to chat responses
+ */
+export interface ReasoningProof {
+  traceId: string;
+  charCount: number;
+  contentHash: string;
+  txSignature?: string;
+  explorerUrl?: string;
+}
+
+/**
  * Chat response with optional proof
  */
 export interface ChatResponse {
   text: string;
   proof?: StoreProof;
+  reasoning?: ReasoningProof;
+  /** Chain-of-thought steps for UI animation (fast mode) */
+  reasoningSteps?: string[];
 }
 
 /**
@@ -97,9 +115,12 @@ export class KageAgent {
   private messagingPlugin: KageMessagingPlugin;
   private groupVaultPlugin: KageGroupVaultPlugin;
   private paymentPlugin: KagePaymentPlugin;
+  private reasoningPlugin: KageReasoningPlugin;
   private anthropic: Anthropic;
   private conversationHistory: Message[] = [];
   private initialized = false;
+  /** Active session ID for reasoning traces */
+  private reasoningSessionId: string | null = null;
 
   constructor(
     config: KageAgentConfig,
@@ -126,6 +147,7 @@ export class KageAgent {
     this.messagingPlugin = createKageMessagingPlugin({ rpcUrl: config.rpcUrl });
     this.groupVaultPlugin = createKageGroupVaultPlugin({ rpcUrl: config.rpcUrl });
     this.paymentPlugin = new KagePaymentPlugin({ rpcUrl: config.rpcUrl });
+    this.reasoningPlugin = createKageReasoningPlugin({ rpcUrl: config.rpcUrl });
     this.anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
   }
 
@@ -141,15 +163,21 @@ export class KageAgent {
     await this.messagingPlugin.initialize(this.keypair);
     await this.groupVaultPlugin.initialize(this.keypair);
     await this.paymentPlugin.initialize(this.keypair);
+    await this.reasoningPlugin.initialize(this.keypair);
+
+    // Start a reasoning session for this agent instance
+    this.reasoningSessionId = this.reasoningPlugin.startSession();
 
     this.initialized = true;
     console.log("[Kage] Agent initialized successfully");
   }
 
   /**
-   * Process a user message and generate a response
+   * Process a user message and generate a response.
+   * @param deepThink - If true, use Extended Thinking (slower but richer reasoning).
+   *                    If false (default), use fast haiku chain-of-thought simulation.
    */
-  async chat(userMessage: string): Promise<ChatResponse> {
+  async chat(userMessage: string, deepThink = false): Promise<ChatResponse> {
     if (!this.initialized) {
       throw new Error("Agent not initialized. Call initialize() first.");
     }
@@ -162,10 +190,10 @@ export class KageAgent {
       return actionResult;
     }
 
-    const text = await this.generateResponse(userMessage);
+    const { text, reasoning, reasoningSteps } = await this.generateResponse(userMessage, deepThink);
     this.conversationHistory.push({ role: "assistant", content: text });
 
-    return { text };
+    return { text, reasoning, reasoningSteps };
   }
 
   /**
@@ -236,30 +264,151 @@ export class KageAgent {
   }
 
   /**
-   * Generate AI response using Claude
+   * Generate AI response, dispatching to fast or deep-think mode.
    */
-  private async generateResponse(userMessage: string): Promise<string> {
+  private async generateResponse(
+    userMessage: string,
+    deepThink = false
+  ): Promise<{ text: string; reasoning?: ReasoningProof; reasoningSteps?: string[] }> {
     const systemPrompt = generateSystemPrompt(this.character);
-
     const messages = this.conversationHistory.map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
     }));
 
     try {
-      const response = await this.anthropic.messages.create({
-        model: this.config.model || "claude-sonnet-4-20250514",
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages,
-      });
-
-      const textContent = response.content.find((c) => c.type === "text");
-      return textContent ? textContent.text : "I apologize, I couldn't generate a response.";
-    } catch (error) {
-      console.error("[Kage] Claude API error:", error);
-      return "I encountered an error while processing your request. Please try again.";
+      if (deepThink) {
+        return await this.generateResponseDeepThink(systemPrompt, messages);
+      }
+      return await this.generateResponseFast(systemPrompt, messages, userMessage);
+    } catch (err) {
+      console.error("[Kage] generateResponse error:", err);
+      return { text: "I encountered an error while processing your request. Please try again." };
     }
+  }
+
+  /**
+   * Fast mode: haiku chain-of-thought → commit → haiku final response.
+   * Total latency ~4-6 s (two cheap API calls + Solana memo).
+   */
+  private async generateResponseFast(
+    systemPrompt: string,
+    messages: Array<{ role: "user" | "assistant"; content: string }>,
+    userMessage: string
+  ): Promise<{ text: string; reasoning?: ReasoningProof; reasoningSteps?: string[] }> {
+    const FAST_MODEL = "claude-haiku-4-5-20251001";
+    let reasoningSteps: string[] = [];
+    let reasoningProof: ReasoningProof | undefined;
+
+    // 1. Quick chain-of-thought call
+    if (this.reasoningSessionId) {
+      try {
+        const thinkResp = await this.anthropic.messages.create({
+          model: FAST_MODEL,
+          max_tokens: 350,
+          system:
+            "You are a concise reasoning assistant. Given a task or question, outline your chain-of-thought in 3-5 numbered steps. Each step must be one short, specific sentence. Output only the numbered list.",
+          messages: [{ role: "user", content: `Reason through: "${userMessage}"` }],
+        });
+        const thinkText = ((thinkResp.content.find((c) => c.type === "text")) as { type: "text"; text: string } | undefined)?.text ?? "";
+
+        // Parse numbered lines
+        reasoningSteps = thinkText
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => /^\d+[\.\)]\s/.test(l))
+          .slice(0, 5);
+
+        if (reasoningSteps.length === 0 && thinkText.length > 10) {
+          reasoningSteps = thinkText
+            .split("\n")
+            .map((l) => l.trim())
+            .filter((l) => l.length > 15)
+            .slice(0, 4);
+        }
+
+        if (thinkText.length > 0) {
+          const trace = await this.reasoningPlugin.commitTrace(thinkText, this.reasoningSessionId);
+          reasoningProof = {
+            traceId: trace.traceId,
+            charCount: trace.charCount,
+            contentHash: trace.contentHash,
+            txSignature: trace.txSignature,
+            explorerUrl: trace.explorerUrl,
+          };
+          console.log(`[Kage:Reasoning] Fast trace committed: ${trace.traceId} (${trace.charCount} chars)`);
+        }
+      } catch (err) {
+        console.warn(`[Kage:Reasoning] Fast reasoning error: ${(err as Error).message}`);
+      }
+    }
+
+    // 2. Final answer with full system prompt
+    const finalResp = await this.anthropic.messages.create({
+      model: FAST_MODEL,
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages,
+    });
+
+    const textContent = (finalResp.content.find((c) => c.type === "text")) as { type: "text"; text: string } | undefined;
+    const text = textContent?.text ?? "I apologize, I couldn't generate a response.";
+    return { text, reasoning: reasoningProof, reasoningSteps };
+  }
+
+  /**
+   * Deep Think mode: claude-3-7-sonnet Extended Thinking.
+   * Real internal reasoning, slower (~30-60 s).
+   */
+  private async generateResponseDeepThink(
+    systemPrompt: string,
+    messages: Array<{ role: "user" | "assistant"; content: string }>
+  ): Promise<{ text: string; reasoning?: ReasoningProof; reasoningSteps?: string[] }> {
+    const THINKING_MODEL = "claude-3-7-sonnet-20250219";
+
+    const requestParams: Parameters<typeof this.anthropic.messages.create>[0] = {
+      model: THINKING_MODEL,
+      max_tokens: 16000,
+      system: systemPrompt,
+      messages,
+    };
+    // @ts-ignore — Extended Thinking API
+    requestParams.thinking = { type: "enabled", budget_tokens: 8000 };
+
+    const response = await this.anthropic.messages.create(requestParams) as Awaited<ReturnType<typeof this.anthropic.messages.create>>;
+
+    let reasoningProof: ReasoningProof | undefined;
+    let reasoningSteps: string[] = [];
+
+    const thinkingBlock = (response as any).content?.find((c: any) => c.type === "thinking");
+    if (thinkingBlock && this.reasoningSessionId) {
+      try {
+        const thinkingText: string = thinkingBlock.thinking ?? "";
+        if (thinkingText.length > 0) {
+          const trace = await this.reasoningPlugin.commitTrace(thinkingText, this.reasoningSessionId);
+          reasoningProof = {
+            traceId: trace.traceId,
+            charCount: trace.charCount,
+            contentHash: trace.contentHash,
+            txSignature: trace.txSignature,
+            explorerUrl: trace.explorerUrl,
+          };
+          reasoningSteps = thinkingText
+            .split("\n")
+            .map((l) => l.trim())
+            .filter((l) => l.length > 20)
+            .slice(0, 6);
+          console.log(`[Kage:Reasoning] Deep trace committed: ${trace.traceId} (${trace.charCount} chars)`);
+        }
+      } catch (err) {
+        console.warn(`[Kage:Reasoning] Deep commit failed: ${(err as Error).message}`);
+      }
+    }
+
+    const textContent = (response as any).content?.find((c: any) => c.type === "text");
+    const text = textContent ? textContent.text : "I apologize, I couldn't generate a response.";
+
+    return { text, reasoning: reasoningProof, reasoningSteps };
   }
 
   /**
@@ -270,10 +419,37 @@ export class KageAgent {
   }
 
   /**
-   * Clear conversation history
+   * Clear conversation history and start a new reasoning session.
    */
   clearHistory(): void {
     this.conversationHistory = [];
+    // Rotate reasoning session on new conversation
+    if (this.reasoningSessionId) {
+      this.reasoningPlugin.endSession();
+    }
+    this.reasoningSessionId = this.reasoningPlugin.startSession();
+  }
+
+  // ─── Reasoning ─────────────────────────────────────────────────────────────
+
+  getAllReasoningTraces(): ReasoningTrace[] {
+    return this.reasoningPlugin.getAllTraces();
+  }
+
+  revealReasoning(traceId: string) {
+    return this.reasoningPlugin.reveal(traceId);
+  }
+
+  revealReasoningWithAuditKey(traceId: string, auditKey: string) {
+    return this.reasoningPlugin.revealWithAuditKey(traceId, auditKey);
+  }
+
+  exportReasoningAuditKey(): string | null {
+    try {
+      return this.reasoningPlugin.exportAuditKey();
+    } catch {
+      return null;
+    }
   }
 
   /**

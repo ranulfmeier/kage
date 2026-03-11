@@ -266,7 +266,7 @@ async function getAgent(): Promise<KageAgent> {
       ipfsGateway: "https://ipfs.io",
       umbraNetwork: SOLANA_NETWORK,
       anthropicApiKey: ANTHROPIC_API_KEY,
-      model: "claude-sonnet-4-5-20251001",
+      model: "claude-3-7-sonnet-20250219",
     },
     sharedKeypair
   );
@@ -293,17 +293,29 @@ wss.on("connection", async (ws: WebSocket) => {
   // Fresh conversation for each new connection, memories persist
   agent.clearHistory();
 
+  // Per-connection Deep Think mode state
+  let deepThinkEnabled = false;
+
   ws.send(
     JSON.stringify({
       type: "connected",
       agentId: sharedKeypair.publicKey.toBase58(),
       message: `Kage agent ready.`,
+      deepThink: deepThinkEnabled,
     })
   );
 
   ws.on("message", async (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
+
+      // Toggle Deep Think mode
+      if (msg.type === "toggle_deep_think") {
+        deepThinkEnabled = typeof msg.enabled === "boolean" ? msg.enabled : !deepThinkEnabled;
+        ws.send(JSON.stringify({ type: "deep_think_status", enabled: deepThinkEnabled }));
+        console.log(`[Kage:API] Deep Think mode: ${deepThinkEnabled ? "ON" : "OFF"}`);
+        return;
+      }
 
       if (msg.type === "chat") {
         const userText: string = msg.text?.trim() || "";
@@ -326,11 +338,19 @@ wss.on("connection", async (ws: WebSocket) => {
           return;
         }
 
-        ws.send(JSON.stringify({ type: "typing" }));
+        ws.send(JSON.stringify({ type: "typing", deepThink: deepThinkEnabled }));
 
-        const response = await agent.chat(userText);
+        const response = await agent.chat(userText, deepThinkEnabled);
 
         console.log(`[Kage:API] chat response proof:`, JSON.stringify(response.proof));
+
+        // Stream reasoning steps with staggered delay for UI animation
+        if (response.reasoningSteps && response.reasoningSteps.length > 0) {
+          for (const step of response.reasoningSteps) {
+            ws.send(JSON.stringify({ type: "reasoning_step", content: step }));
+            await new Promise<void>((r) => setTimeout(r, 650));
+          }
+        }
 
         ws.send(
           JSON.stringify({
