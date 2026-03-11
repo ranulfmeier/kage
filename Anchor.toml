@@ -6,10 +6,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-kage = "AK3B3weUT97hm2Dzx2zLfgVBxZNPkxfSxPYEjkX8HcaS"
+kage = "PRDZsFBacoRGLW5bBumh4Wi42hv8N72akYcWhDgvt9s"
 
 [programs.devnet]
-kage = "AK3B3weUT97hm2Dzx2zLfgVBxZNPkxfSxPYEjkX8HcaS"
+kage = "PRDZsFBacoRGLW5bBumh4Wi42hv8N72akYcWhDgvt9s"
 
 [registry]
 url = "https://api.apr.dev"

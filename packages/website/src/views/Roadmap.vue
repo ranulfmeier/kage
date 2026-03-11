@@ -8,14 +8,14 @@ const phases = [
   {
     number: '壱',
     name: 'Core Protocol',
-    status: 'current',
+    status: 'done',
     items: [
       { text: 'Client-side AES-256-GCM encryption', done: true },
       { text: 'IPFS blob storage', done: true },
       { text: 'Solana PDA commitments', done: true },
       { text: 'Viewing key system', done: true },
       { text: 'Eliza-compatible plugins', done: true },
-      { text: 'Devnet deployment', done: false },
+      { text: 'Devnet deployment', done: true },
     ],
   },
   {

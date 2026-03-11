@@ -13,7 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3002;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const KAGE_PROGRAM_ID =
-  process.env.KAGE_PROGRAM_ID || "AK3B3weUT97hm2Dzx2zLfgVBxZNPkxfSxPYEjkX8HcaS";
+  process.env.KAGE_PROGRAM_ID || "PRDZsFBacoRGLW5bBumh4Wi42hv8N72akYcWhDgvt9s";
 
 if (!ANTHROPIC_API_KEY) {
   console.error("ANTHROPIC_API_KEY environment variable is required");
