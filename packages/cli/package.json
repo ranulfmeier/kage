@@ -1,0 +1,28 @@
+{
+  "name": "@kage/cli",
+  "version": "0.1.0",
+  "description": "Kage CLI — privacy-first AI agent from your terminal",
+  "type": "module",
+  "bin": {
+    "kage": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kage/agent": "workspace:*",
+    "@kage/sdk": "workspace:*",
+    "@solana/web3.js": "^1.95.0",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "ora": "^8.1.1",
+    "inquirer": "^10.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.4.0"
+  }
+}

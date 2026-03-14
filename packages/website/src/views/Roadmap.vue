@@ -43,23 +43,33 @@ const phases = [
   {
     number: '肆',
     name: 'Advanced Privacy',
-    status: 'current',
+    status: 'done',
     items: [
-      { text: 'zkVM integration (SP1/Risc0)', done: false },
       { text: 'Hidden reasoning traces', done: true },
-      { text: 'DID integration', done: false },
+      { text: 'DID integration', done: true },
       { text: 'Reputation system', done: true },
+      { text: 'zkVM integration (SP1/Risc0)', done: false },
     ],
   },
   {
     number: '伍',
     name: 'Enterprise',
-    status: 'future',
+    status: 'current',
     items: [
+      { text: 'CLI tools', done: true },
       { text: 'Arweave permanent storage', done: false },
       { text: 'Team vaults', done: false },
-      { text: 'Multi-language SDKs', done: false },
-      { text: 'CLI tools', done: false },
+      { text: 'Python SDK', done: false },
+    ],
+  },
+  {
+    number: '六',
+    name: 'ZK Research',
+    status: 'future',
+    items: [
+      { text: 'zkVM integration (SP1/Risc0)', done: false },
+      { text: 'ZK proof of inference', done: false },
+      { text: 'On-chain ZK verifier', done: false },
     ],
   },
 ];
