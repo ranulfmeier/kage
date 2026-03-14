@@ -10,3 +10,4 @@ export * from "./shielded-payment.js";
 export * from "./reasoning.js";
 export * from "./did.js";
 export * from "./reputation.js";
+export * from "./arweave.js";

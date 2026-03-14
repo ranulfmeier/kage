@@ -16,6 +16,7 @@ configCommand
     console.log(chalk.gray("  Program ID:  ") + chalk.white(config.programId));
     console.log(chalk.gray("  Network:     ") + chalk.white(config.network));
     console.log(chalk.gray("  Model:       ") + chalk.white(config.model));
+    console.log(chalk.gray("  Storage:     ") + (config.storageBackend === "arweave" ? chalk.green("arweave (permanent)") : chalk.white("memory (dev)")));
     const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
     console.log(chalk.gray("  API Key:     ") + (hasApiKey ? chalk.green("set ✓") : chalk.red("not set ✗")));
     console.log();

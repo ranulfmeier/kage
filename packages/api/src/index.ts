@@ -377,6 +377,9 @@ let sharedAgent: KageAgent | null = null;
 async function getAgent(): Promise<KageAgent> {
   if (sharedAgent) return sharedAgent;
   await ensureDevnetSol(sharedKeypair);
+  const storageBackend = (process.env.STORAGE_BACKEND ?? "memory") as "memory" | "arweave";
+  console.log(`[Kage:API] Storage backend: ${storageBackend}`);
+
   sharedAgent = createKageAgent(
     {
       rpcUrl: SOLANA_RPC_URL,
@@ -385,6 +388,7 @@ async function getAgent(): Promise<KageAgent> {
       umbraNetwork: SOLANA_NETWORK,
       anthropicApiKey: ANTHROPIC_API_KEY,
       model: "claude-3-7-sonnet-20250219",
+      storageBackend,
     },
     sharedKeypair
   );

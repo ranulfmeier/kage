@@ -64,6 +64,8 @@ export interface KageAgentConfig {
   umbraNetwork: "devnet" | "mainnet";
   anthropicApiKey: string;
   model?: string;
+  /** Storage backend for memories: "memory" (default) | "arweave" (permanent) */
+  storageBackend?: "memory" | "arweave";
 }
 
 /**
@@ -146,6 +148,7 @@ export class KageAgent {
       programId: config.programId,
       ipfsGateway: config.ipfsGateway,
       umbraNetwork: config.umbraNetwork,
+      storageBackend: config.storageBackend ?? "memory",
     };
 
     this.memoryPlugin = createKageMemoryPlugin(pluginConfig);

@@ -7,6 +7,8 @@ import {
   KageConfig,
   MemoryContent,
   MemoryEntry,
+  ArweaveStorageAdapter,
+  MemoryStorageAdapter,
 } from "@kage/sdk";
 
 /**
@@ -14,11 +16,15 @@ import {
  * Provides encrypted memory storage and retrieval capabilities
  */
 
+export type StorageBackend = "memory" | "arweave";
+
 export interface KageMemoryPluginConfig {
   rpcUrl: string;
   programId: string;
   ipfsGateway: string;
   umbraNetwork: "devnet" | "mainnet";
+  /** Storage backend: "memory" (default dev) | "arweave" (permanent) */
+  storageBackend?: StorageBackend;
 }
 
 export interface MemoryAction {
@@ -60,11 +66,17 @@ export class KageMemoryPlugin {
       umbraNetwork: this.config.umbraNetwork,
     };
 
-    this.vault = createVault(connection, kageConfig, keypair);
+    // Select storage backend
+    const backend = this.config.storageBackend ?? "memory";
+    const storage = backend === "arweave"
+      ? new ArweaveStorageAdapter({ keypair, rpcUrl: this.config.rpcUrl, network: this.config.umbraNetwork })
+      : new MemoryStorageAdapter();
+
+    this.vault = createVault(connection, kageConfig, keypair, storage);
     await this.vault.initialize();
     this.initialized = true;
 
-    console.log(`[KageMemory] Plugin initialized for agent: ${keypair.publicKey.toBase58()}`);
+    console.log(`[KageMemory] Plugin initialized for agent: ${keypair.publicKey.toBase58()} (storage: ${backend})`);
   }
 
   /**

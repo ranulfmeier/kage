@@ -39,3 +39,6 @@ test-*.ts
 test-*.mjs
 *.test.ts
 *.spec.ts
+
+# Demo / marketing assets
+demos/

@@ -14,6 +14,7 @@ export interface KageConfig {
   programId: string;
   network: "devnet" | "mainnet";
   model: string;
+  storageBackend: "memory" | "arweave";
 }
 
 const DEFAULT_CONFIG: KageConfig = {
@@ -21,6 +22,7 @@ const DEFAULT_CONFIG: KageConfig = {
   programId: process.env.KAGE_PROGRAM_ID || "PRDZsFBacoRGLW5bBumh4Wi42hv8N72akYcWhDgvt9s",
   network: "devnet",
   model: "claude-haiku-4-5-20251001",
+  storageBackend: (process.env.STORAGE_BACKEND as "memory" | "arweave") ?? "memory",
 };
 
 export function ensureConfigDir(): void {
@@ -76,6 +78,7 @@ export async function loadAgent(ora?: { text: string; start(): void; fail(msg: s
       umbraNetwork: config.network,
       anthropicApiKey: apiKey,
       model: config.model,
+      storageBackend: config.storageBackend,
     },
     keypair
   );
