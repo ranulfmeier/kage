@@ -1,0 +1,31 @@
+{
+  "name": "@kage/plugin-eliza",
+  "version": "0.1.0",
+  "description": "ElizaOS plugin for Kage — encrypted memory, DID, reputation, team vaults and shielded payments on Solana",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/"
+  },
+  "peerDependencies": {
+    "@elizaos/core": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@elizaos/core": "^1.0.0",
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  },
+  "keywords": ["elizaos", "eliza", "plugin", "kage", "solana", "privacy", "ai-agent", "encryption"],
+  "license": "MIT"
+}

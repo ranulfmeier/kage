@@ -71,24 +71,24 @@ def _parse_reasoning(d: dict | None) -> ReasoningProof | None:
 def _parse_reputation(d: dict) -> AgentReputation:
     events = [
         ReputationEvent(
-            type=e["type"],
-            delta=e["delta"],
-            score_after=e["scoreAfter"],
+            type=e.get("type", ""),
+            delta=e.get("delta", 0),
+            score_after=e.get("scoreAfter", e.get("score", 0)),
             description=e.get("description", ""),
-            timestamp=e["timestamp"],
+            timestamp=e.get("timestamp", 0),
             tx_signature=e.get("txSignature"),
         )
         for e in d.get("events", [])
     ]
     return AgentReputation(
-        did=d["did"],
-        score=d["score"],
-        tier=d["tier"],
-        total_tasks=d["totalTasks"],
-        successful_tasks=d["successfulTasks"],
-        failed_tasks=d["failedTasks"],
-        slash_count=d["slashCount"],
-        last_updated=d["lastUpdated"],
+        did=d.get("agentDID") or d.get("did", ""),
+        score=d.get("score", 0),
+        tier=d.get("tier", "newcomer"),
+        total_tasks=d.get("totalTasks", 0),
+        successful_tasks=d.get("successfulTasks", 0),
+        failed_tasks=d.get("failedTasks", 0),
+        slash_count=d.get("slashCount", 0),
+        last_updated=d.get("lastUpdated", 0),
         events=events,
         last_tx_signature=d.get("lastTxSignature"),
     )
@@ -169,8 +169,8 @@ class KageAsyncClient:
         return r.json()
 
     async def agent_info(self) -> dict[str, Any]:
-        """Return agent public key and X25519 viewing key."""
-        r = await self._http_client().get("/agent/info")
+        """Return agent Solana public key and X25519 viewing key."""
+        r = await self._http_client().get("/agent/x25519")
         r.raise_for_status()
         return r.json()
 
@@ -308,7 +308,7 @@ class KageAsyncClient:
             to_x25519: Recipient's X25519 public key (base64).
             content: Message body (AES-256-GCM encrypted in transit).
         """
-        r = await self._http_client().post("/message/send", json={
+        r = await self._http_client().post("/send", json={
             "recipientPubkey": to_pubkey,
             "recipientX25519": to_x25519,
             "content": content,
@@ -318,7 +318,7 @@ class KageAsyncClient:
 
     async def inbox(self) -> list[dict[str, Any]]:
         """Fetch received messages."""
-        r = await self._http_client().get("/message/inbox")
+        r = await self._http_client().get("/inbox")
         r.raise_for_status()
         return r.json().get("messages", [])
 
@@ -340,7 +340,7 @@ class KageAsyncClient:
             amount_sol: Amount in SOL (e.g. 0.01).
             memo: Optional payment memo.
         """
-        r = await self._http_client().post("/payment/send", json={
+        r = await self._http_client().post("/pay", json={
             "recipientSolana": to_pubkey,
             "recipientViewing": viewing_key,
             "amountSol": amount_sol,
@@ -360,7 +360,7 @@ class KageAsyncClient:
 
     async def scan_payments(self) -> list[Payment]:
         """Scan for payments received to stealth addresses."""
-        r = await self._http_client().get("/payment/scan")
+        r = await self._http_client().get("/payments")
         r.raise_for_status()
         return [
             Payment(

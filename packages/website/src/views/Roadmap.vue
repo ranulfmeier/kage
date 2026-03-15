@@ -60,6 +60,7 @@ const phases = [
       { text: 'Arweave permanent storage', done: true },
       { text: 'Team vaults', done: true },
       { text: 'Python SDK', done: true },
+      { text: 'ElizaOS plugin', done: true },
     ],
   },
   {
