@@ -59,7 +59,7 @@ const phases = [
       { text: 'CLI tools', done: true },
       { text: 'Arweave permanent storage', done: true },
       { text: 'Team vaults', done: true },
-      { text: 'Python SDK', done: false },
+      { text: 'Python SDK', done: true },
     ],
   },
   {
