@@ -1,5 +1,5 @@
 import { Keypair, Connection, PublicKey } from "@solana/web3.js";
-import Anthropic from "@anthropic-ai/sdk";
+import type { LLMProvider } from "./providers/llm-provider.js";
 import {
   KageMemoryPlugin,
   createKageMemoryPlugin,
@@ -65,8 +65,8 @@ export interface KageAgentConfig {
   programId: string;
   ipfsGateway: string;
   umbraNetwork: "devnet" | "mainnet";
-  anthropicApiKey: string;
-  model?: string;
+  /** LLM provider instance (ClaudeProvider, OpenAIProvider, OllamaProvider, …) */
+  llmProvider: LLMProvider;
   /** Storage backend for memories: "memory" (default) | "arweave" (permanent) */
   storageBackend?: "memory" | "arweave";
 }
@@ -132,7 +132,7 @@ export class KageAgent {
   private didPlugin: KageDIDPlugin;
   private reputationPlugin: KageReputationPlugin;
   private teamVaultPlugin: KageTeamVaultPlugin;
-  private anthropic: Anthropic;
+  private llm: LLMProvider;
   private conversationHistory: Message[] = [];
   private initialized = false;
   /** Active session ID for reasoning traces */
@@ -174,7 +174,7 @@ export class KageAgent {
       network: config.umbraNetwork,
     });
     this.teamVaultPlugin = new KageTeamVaultPlugin({ rpcUrl: config.rpcUrl });
-    this.anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
+    this.llm = config.llmProvider;
   }
 
   /**
@@ -317,44 +317,22 @@ export class KageAgent {
   }
 
   /**
-   * Fast mode: haiku chain-of-thought → commit → haiku final response.
-   * Total latency ~4-6 s (two cheap API calls + Solana memo).
+   * Fast mode: provider.reason() → commit trace → provider.chat()
    */
   private async generateResponseFast(
     systemPrompt: string,
     messages: Array<{ role: "user" | "assistant"; content: string }>,
     userMessage: string
   ): Promise<{ text: string; reasoning?: ReasoningProof; reasoningSteps?: string[] }> {
-    const FAST_MODEL = "claude-haiku-4-5-20251001";
     let reasoningSteps: string[] = [];
     let reasoningProof: ReasoningProof | undefined;
 
-    // 1. Quick chain-of-thought call
-    if (this.reasoningSessionId) {
+    // 1. Chain-of-thought steps (optional, provider may skip)
+    if (this.reasoningSessionId && this.llm.reason) {
       try {
-        const thinkResp = await this.anthropic.messages.create({
-          model: FAST_MODEL,
-          max_tokens: 350,
-          system:
-            "You are a concise reasoning assistant. Given a task or question, outline your chain-of-thought in 3-5 numbered steps. Each step must be one short, specific sentence. Output only the numbered list.",
-          messages: [{ role: "user", content: `Reason through: "${userMessage}"` }],
-        });
-        const thinkText = ((thinkResp.content.find((c) => c.type === "text")) as { type: "text"; text: string } | undefined)?.text ?? "";
-
-        // Parse numbered lines
-        reasoningSteps = thinkText
-          .split("\n")
-          .map((l) => l.trim())
-          .filter((l) => /^\d+[\.\)]\s/.test(l))
-          .slice(0, 5);
-
-        if (reasoningSteps.length === 0 && thinkText.length > 10) {
-          reasoningSteps = thinkText
-            .split("\n")
-            .map((l) => l.trim())
-            .filter((l) => l.length > 15)
-            .slice(0, 4);
-        }
+        const steps = await this.llm.reason(userMessage);
+        reasoningSteps = steps;
+        const thinkText = steps.join("\n");
 
         if (thinkText.length > 0) {
           const trace = await this.reasoningPlugin.commitTrace(thinkText, this.reasoningSessionId);
@@ -365,79 +343,53 @@ export class KageAgent {
             txSignature: trace.txSignature,
             explorerUrl: trace.explorerUrl,
           };
-          console.log(`[Kage:Reasoning] Fast trace committed: ${trace.traceId} (${trace.charCount} chars)`);
+          console.log(`[Kage:Reasoning] Fast trace committed: ${trace.traceId} (${trace.charCount} chars) [${this.llm.name}]`);
         }
       } catch (err) {
         console.warn(`[Kage:Reasoning] Fast reasoning error: ${(err as Error).message}`);
       }
     }
 
-    // 2. Final answer with full system prompt
-    const finalResp = await this.anthropic.messages.create({
-      model: FAST_MODEL,
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages,
-    });
-
-    const textContent = (finalResp.content.find((c) => c.type === "text")) as { type: "text"; text: string } | undefined;
-    const text = textContent?.text ?? "I apologize, I couldn't generate a response.";
-    return { text, reasoning: reasoningProof, reasoningSteps };
+    // 2. Final answer
+    const resp = await this.llm.chat(messages, systemPrompt);
+    return { text: resp.text || "I apologize, I couldn't generate a response.", reasoning: reasoningProof, reasoningSteps };
   }
 
   /**
-   * Deep Think mode: claude-3-7-sonnet Extended Thinking.
-   * Real internal reasoning, slower (~30-60 s).
+   * Deep Think mode: provider.think() with extended reasoning.
+   * Falls back to chat() if provider doesn't support think().
    */
   private async generateResponseDeepThink(
     systemPrompt: string,
     messages: Array<{ role: "user" | "assistant"; content: string }>
   ): Promise<{ text: string; reasoning?: ReasoningProof; reasoningSteps?: string[] }> {
-    const THINKING_MODEL = "claude-3-7-sonnet-20250219";
-
-    const requestParams: Parameters<typeof this.anthropic.messages.create>[0] = {
-      model: THINKING_MODEL,
-      max_tokens: 16000,
-      system: systemPrompt,
-      messages,
-    };
-    // @ts-ignore — Extended Thinking API
-    requestParams.thinking = { type: "enabled", budget_tokens: 8000 };
-
-    const response = await this.anthropic.messages.create(requestParams) as Awaited<ReturnType<typeof this.anthropic.messages.create>>;
+    const resp = this.llm.think
+      ? await this.llm.think(messages, systemPrompt, { maxTokens: 16000, budgetTokens: 8000 })
+      : await this.llm.chat(messages, systemPrompt, { maxTokens: 16000 });
 
     let reasoningProof: ReasoningProof | undefined;
-    let reasoningSteps: string[] = [];
 
-    const thinkingBlock = (response as any).content?.find((c: any) => c.type === "thinking");
-    if (thinkingBlock && this.reasoningSessionId) {
+    if (resp.reasoning && this.reasoningSessionId) {
       try {
-        const thinkingText: string = thinkingBlock.thinking ?? "";
-        if (thinkingText.length > 0) {
-          const trace = await this.reasoningPlugin.commitTrace(thinkingText, this.reasoningSessionId);
-          reasoningProof = {
-            traceId: trace.traceId,
-            charCount: trace.charCount,
-            contentHash: trace.contentHash,
-            txSignature: trace.txSignature,
-            explorerUrl: trace.explorerUrl,
-          };
-          reasoningSteps = thinkingText
-            .split("\n")
-            .map((l) => l.trim())
-            .filter((l) => l.length > 20)
-            .slice(0, 6);
-          console.log(`[Kage:Reasoning] Deep trace committed: ${trace.traceId} (${trace.charCount} chars)`);
-        }
+        const trace = await this.reasoningPlugin.commitTrace(resp.reasoning, this.reasoningSessionId);
+        reasoningProof = {
+          traceId: trace.traceId,
+          charCount: trace.charCount,
+          contentHash: trace.contentHash,
+          txSignature: trace.txSignature,
+          explorerUrl: trace.explorerUrl,
+        };
+        console.log(`[Kage:Reasoning] Deep trace committed: ${trace.traceId} (${trace.charCount} chars) [${this.llm.name}]`);
       } catch (err) {
         console.warn(`[Kage:Reasoning] Deep commit failed: ${(err as Error).message}`);
       }
     }
 
-    const textContent = (response as any).content?.find((c: any) => c.type === "text");
-    const text = textContent ? textContent.text : "I apologize, I couldn't generate a response.";
-
-    return { text, reasoning: reasoningProof, reasoningSteps };
+    return {
+      text: resp.text || "I apologize, I couldn't generate a response.",
+      reasoning: reasoningProof,
+      reasoningSteps: resp.reasoningSteps,
+    };
   }
 
   /**
@@ -481,11 +433,13 @@ export class KageAgent {
     }
   }
 
-  /**
-   * Get agent's public key
-   */
   getPublicKey(): string {
     return this.keypair.publicKey.toBase58();
+  }
+
+  /** Active LLM provider name and model (e.g. "claude / claude-haiku-4-5") */
+  getLLMInfo(): { provider: string; model: string } {
+    return { provider: this.llm.name, model: this.llm.model };
   }
 
   /**
@@ -790,22 +744,51 @@ export function createKageAgent(
 }
 
 /**
- * Create agent from environment variables
+ * Create agent from environment variables.
+ *
+ * Supported env vars:
+ *   LLM_PROVIDER        — "claude" (default) | "openai" | "ollama"
+ *   ANTHROPIC_API_KEY   — required for claude
+ *   OPENAI_API_KEY      — required for openai
+ *   OPENAI_BASE_URL     — optional, for compatible APIs (Ollama, Groq, Together)
+ *   LLM_FAST_MODEL      — override fast model
+ *   LLM_THINK_MODEL     — override think model
  */
-export function createKageAgentFromEnv(): KageAgent {
+export async function createKageAgentFromEnv(): Promise<KageAgent> {
+  const { createClaudeProvider } = await import("./providers/claude-provider.js");
+  const { createOpenAIProvider, createOllamaProvider } = await import("./providers/openai-provider.js");
+
+  const providerName = (process.env.LLM_PROVIDER ?? "claude").toLowerCase();
+  let llmProvider: LLMProvider;
+
+  if (providerName === "openai") {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error("OPENAI_API_KEY required when LLM_PROVIDER=openai");
+    llmProvider = createOpenAIProvider(apiKey, {
+      baseURL: process.env.OPENAI_BASE_URL,
+      fastModel: process.env.LLM_FAST_MODEL,
+      thinkModel: process.env.LLM_THINK_MODEL,
+    });
+  } else if (providerName === "ollama") {
+    llmProvider = createOllamaProvider(process.env.LLM_FAST_MODEL ?? "llama3.1");
+  } else {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY required when LLM_PROVIDER=claude");
+    llmProvider = createClaudeProvider(apiKey, {
+      fastModel: process.env.LLM_FAST_MODEL,
+      thinkModel: process.env.LLM_THINK_MODEL,
+    });
+  }
+
+  console.log(`[Kage] LLM provider: ${llmProvider.name} / ${llmProvider.model}`);
+
   const config: KageAgentConfig = {
     rpcUrl: process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
-    programId:
-      process.env.KAGE_PROGRAM_ID || "KAGExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    programId: process.env.KAGE_PROGRAM_ID || "KAGExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     ipfsGateway: process.env.IPFS_GATEWAY || "https://ipfs.io",
     umbraNetwork: (process.env.UMBRA_NETWORK as "devnet" | "mainnet") || "devnet",
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
-    model: process.env.ANTHROPIC_MODEL,
+    llmProvider,
   };
-
-  if (!config.anthropicApiKey) {
-    throw new Error("ANTHROPIC_API_KEY environment variable is required");
-  }
 
   let keypair: Keypair;
   if (process.env.SOLANA_PRIVATE_KEY) {

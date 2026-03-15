@@ -4,3 +4,6 @@ export * from "./plugins/kage-memory.js";
 export * from "./plugins/kage-privacy.js";
 export * from "./actions/store-memory.js";
 export * from "./actions/recall-memory.js";
+export * from "./providers/llm-provider.js";
+export * from "./providers/claude-provider.js";
+export * from "./providers/openai-provider.js";

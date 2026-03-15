@@ -55,6 +55,7 @@ const input = ref('');
 const isConnected = ref(false);
 const isTyping = ref(false);
 const agentId = ref('');
+const llmProvider = ref(''); // e.g. "claude / claude-haiku-4-5"
 const memories = ref<Memory[]>([]);
 const showMemories = ref(false);
 const messagesEl = ref<HTMLElement | null>(null);
@@ -750,6 +751,16 @@ async function fetchAgentX25519() {
   }
 }
 
+async function fetchLLMInfo() {
+  try {
+    const res = await fetch(`${API_URL}/health`);
+    const data = await res.json();
+    if (data.llm) {
+      llmProvider.value = `${data.llm.provider} / ${data.llm.model}`;
+    }
+  } catch { /* ignore */ }
+}
+
 async function fetchInbox() {
   try {
     const res = await fetch(`${API_URL}/inbox`);
@@ -882,6 +893,7 @@ onMounted(() => {
   connect();
   fetchAgentX25519();
   fetchPayments();
+  fetchLLMInfo();
 });
 
 onUnmounted(() => {
@@ -929,6 +941,7 @@ onUnmounted(() => {
             <span class="text-xs text-stone-600">{{ isConnected ? 'Connected' : 'Disconnected' }}</span>
           </div>
           <p v-if="agentId" class="text-[10px] font-mono text-stone-400 truncate leading-tight">{{ agentId.slice(0,18) }}…</p>
+          <p v-if="llmProvider" class="text-[9px] text-stone-400 truncate leading-tight mt-0.5">{{ llmProvider }}</p>
           <button @click="connect" class="mt-1.5 text-[10px] tracking-widest uppercase text-stone-400 hover:text-stone-700 transition-colors">
             {{ isConnected ? 'Restart' : 'Connect' }}
           </button>

@@ -3,7 +3,14 @@ import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import cors from "cors";
 import { Keypair, Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { createKageAgent, KageAgent } from "@kage/agent";
+import {
+  createKageAgent,
+  KageAgent,
+  createClaudeProvider,
+  createOpenAIProvider,
+  createOllamaProvider,
+  type LLMProvider,
+} from "@kage/agent";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -11,14 +18,37 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT || 3002;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const KAGE_PROGRAM_ID =
   process.env.KAGE_PROGRAM_ID || "PRDZsFBacoRGLW5bBumh4Wi42hv8N72akYcWhDgvt9s";
 
-if (!ANTHROPIC_API_KEY) {
-  console.error("ANTHROPIC_API_KEY environment variable is required");
-  process.exit(1);
+function buildLLMProvider(): LLMProvider {
+  const providerName = (process.env.LLM_PROVIDER ?? "claude").toLowerCase();
+
+  if (providerName === "openai") {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) { console.error("OPENAI_API_KEY required when LLM_PROVIDER=openai"); process.exit(1); }
+    return createOpenAIProvider(apiKey, {
+      baseURL: process.env.OPENAI_BASE_URL,
+      fastModel: process.env.LLM_FAST_MODEL,
+      thinkModel: process.env.LLM_THINK_MODEL,
+    });
+  }
+
+  if (providerName === "ollama") {
+    return createOllamaProvider(process.env.LLM_FAST_MODEL ?? "llama3.1");
+  }
+
+  // Default: Claude
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) { console.error("ANTHROPIC_API_KEY required when LLM_PROVIDER=claude (default)"); process.exit(1); }
+  return createClaudeProvider(apiKey, {
+    fastModel: process.env.LLM_FAST_MODEL,
+    thinkModel: process.env.LLM_THINK_MODEL,
+  });
 }
+
+const llmProvider = buildLLMProvider();
+console.log(`[Kage:API] LLM provider: ${llmProvider.name} / ${llmProvider.model}`);
 
 function loadOrCreateKeypair(): Keypair {
   const keypairPath = path.join(__dirname, "../agent-keypair.json");
@@ -63,7 +93,11 @@ const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", agent: "kage" });
+  res.json({
+    status: "ok",
+    agent: "kage",
+    llm: { provider: llmProvider.name, model: llmProvider.model },
+  });
 });
 
 app.get("/memories", async (_req, res) => {
@@ -475,8 +509,7 @@ async function getAgent(): Promise<KageAgent> {
       programId: KAGE_PROGRAM_ID,
       ipfsGateway: "https://ipfs.io",
       umbraNetwork: SOLANA_NETWORK,
-      anthropicApiKey: ANTHROPIC_API_KEY,
-      model: "claude-3-7-sonnet-20250219",
+      llmProvider,
       storageBackend,
     },
     sharedKeypair
