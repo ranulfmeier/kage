@@ -35,8 +35,8 @@ test-ledger/
 agent-keypair.json
 
 # Python
-.venv/
-__pycache__/
+**/.venv/
+**/__pycache__/
 *.pyc
 *.pyo
 *.egg-info/
