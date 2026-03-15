@@ -5,7 +5,7 @@ import { RouterLink } from 'vue-router';
 const WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3002';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
-type ActiveTab = 'chat' | 'delegation' | 'messaging' | 'groups' | 'payments' | 'did' | 'reputation' | 'teams';
+type ActiveTab = 'chat' | 'delegation' | 'messaging' | 'groups' | 'payments' | 'did' | 'reputation' | 'teams' | 'zk';
 
 interface StoreProof {
   cid?: string;
@@ -232,6 +232,104 @@ const secretData = ref('');
 const retrievedSecret = ref<{ label: string; data: unknown } | null>(null);
 const agentX25519ForTeams = ref('');
 const lastTeamTx = ref('');
+
+// ZK State
+interface ZKCommitmentUI {
+  id: string;
+  proofType: string;
+  agentDID: string;
+  inputHash: string;
+  outputHash: string;
+  publicOutputs: Record<string, unknown>;
+  status: string;
+  txSignature?: string;
+  vkey?: string;
+  createdAt: number;
+}
+
+const zkCommitments = ref<ZKCommitmentUI[]>([]);
+const zkCommitType = ref<'reputation' | 'memory' | 'task'>('reputation');
+const isCreatingCommitment = ref(false);
+const zkVerifyResult = ref<{ valid: boolean; reason?: string } | null>(null);
+
+const zkRepEvents = ref([
+  { eventType: 'task_complete', delta: 25, timestamp: Date.now() },
+]);
+const zkRepScore = ref(125);
+
+const zkMemCiphertextHash = ref('');
+const zkMemType = ref<'episodic' | 'semantic' | 'procedural'>('episodic');
+
+const zkTaskId = ref('');
+const zkTaskOutcome = ref<'success' | 'partial' | 'failure'>('success');
+
+async function fetchZKCommitments() {
+  try {
+    const res = await fetch(`${API_URL}/zk/commitments`);
+    const data = await res.json();
+    zkCommitments.value = data.commitments ?? [];
+  } catch (err) {
+    console.error('Failed to fetch ZK commitments:', err);
+  }
+}
+
+async function createZKCommitment() {
+  isCreatingCommitment.value = true;
+  try {
+    let url = '';
+    let body: Record<string, unknown> = {};
+
+    if (zkCommitType.value === 'reputation') {
+      url = `${API_URL}/zk/commit/reputation`;
+      body = {
+        agentDID: agentId.value ? `did:sol:${agentId.value}` : 'did:sol:demo',
+        events: zkRepEvents.value,
+        claimedScore: zkRepScore.value,
+      };
+    } else if (zkCommitType.value === 'memory') {
+      url = `${API_URL}/zk/commit/memory`;
+      body = {
+        agentDID: agentId.value ? `did:sol:${agentId.value}` : 'did:sol:demo',
+        ciphertextHash: zkMemCiphertextHash.value || 'a'.repeat(64),
+        storedAt: Date.now(),
+        memoryType: zkMemType.value,
+      };
+    } else {
+      url = `${API_URL}/zk/commit/task`;
+      body = {
+        agentDID: agentId.value ? `did:sol:${agentId.value}` : 'did:sol:demo',
+        taskId: zkTaskId.value || `task-${Date.now()}`,
+        instructionHash: 'a'.repeat(64),
+        resultHash: 'b'.repeat(64),
+        outcome: zkTaskOutcome.value,
+        executorDID: agentId.value ? `did:sol:${agentId.value}` : 'did:sol:demo',
+      };
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.commitment) {
+      zkCommitments.value.unshift(data.commitment);
+    }
+  } catch (err) {
+    console.error('ZK commit failed:', err);
+  } finally {
+    isCreatingCommitment.value = false;
+  }
+}
+
+async function verifyZKCommitment(id: string) {
+  try {
+    const res = await fetch(`${API_URL}/zk/verify/${id}`, { method: 'POST' });
+    zkVerifyResult.value = await res.json();
+  } catch (err) {
+    console.error('ZK verify failed:', err);
+  }
+}
 
 // Deep Think & reasoning step state
 const deepThinkEnabled = ref(false);
@@ -504,6 +602,11 @@ const tabInfo: Record<string, { name: string; description: string; badges: strin
     name: 'Reputation System',
     description: 'On-chain reputation scoring (0–1000) across four tiers: Newcomer → Trusted → Verified → Elite. Every task outcome and slash event is written to Solana Memo.',
     badges: ['0–1000 score', 'Solana Memo', 'Tamper-proof'],
+  },
+  zk: {
+    name: 'ZK Proofs',
+    description: 'Create and verify zero-knowledge commitments for reputation, memory integrity, and task completion. Commitments are anchored on Solana and proved by an SP1 zkVM worker.',
+    badges: ['SP1 zkVM', 'Solana Memo', 'Zero-knowledge'],
   },
 };
 
@@ -1030,6 +1133,18 @@ onUnmounted(() => {
             </button>
           </div>
 
+          <div>
+            <p class="text-[9px] font-medium tracking-[0.18em] uppercase text-stone-400 px-2 mb-1">Verification</p>
+            <button @click="activeTab = 'zk'; fetchZKCommitments()"
+              class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-sm transition-colors text-left"
+              :class="activeTab === 'zk' ? 'bg-stone-800 text-white' : 'text-stone-600 hover:bg-stone-200'">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+              </svg>
+              ZK Proofs
+            </button>
+          </div>
+
         </nav>
 
         <!-- Sidebar footer: agent info -->
@@ -1065,8 +1180,9 @@ onUnmounted(() => {
           { id: 'payments',   label: 'Payments' },
           { id: 'did',        label: 'DID' },
           { id: 'reputation', label: 'Rep' },
+          { id: 'zk',         label: 'ZK' },
         ]" :key="tab.id"
-          @click="activeTab = tab.id as ActiveTab; if(tab.id==='delegation') fetchTasks(); if(tab.id==='messaging'){fetchAgentX25519();fetchInbox();} if(tab.id==='groups'){fetchGroups();fetchAgentX25519();} if(tab.id==='payments') fetchPayments(); if(tab.id==='did'){fetchDID();fetchDIDCredentials();} if(tab.id==='reputation') fetchReputation(); if(tab.id==='teams') fetchTeams();"
+          @click="activeTab = tab.id as ActiveTab; if(tab.id==='delegation') fetchTasks(); if(tab.id==='messaging'){fetchAgentX25519();fetchInbox();} if(tab.id==='groups'){fetchGroups();fetchAgentX25519();} if(tab.id==='payments') fetchPayments(); if(tab.id==='did'){fetchDID();fetchDIDCredentials();} if(tab.id==='reputation') fetchReputation(); if(tab.id==='teams') fetchTeams(); if(tab.id==='zk') fetchZKCommitments();"
           class="py-2.5 text-[9px] tracking-widest uppercase transition-colors"
           :class="activeTab === tab.id ? 'bg-stone-200 text-stone-800 font-medium' : 'text-stone-400'"
         >{{ tab.label }}</button>
@@ -2407,6 +2523,126 @@ onUnmounted(() => {
             <li class="flex gap-2"><span class="text-stone-300 select-none">3.</span>Issuer signs credential claim with their keypair → claimHash + signature</li>
             <li class="flex gap-2"><span class="text-stone-300 select-none">4.</span>Credential hash committed on-chain via Solana Memo (tamper-proof)</li>
             <li class="flex gap-2"><span class="text-stone-300 select-none">5.</span>Any agent can verify: recompute hash → check signature → check chain</li>
+          </ol>
+        </div>
+
+      </div>
+
+      <!-- ZK Proofs tab -->
+      <div v-if="activeTab === 'zk'" class="max-w-2xl mx-auto space-y-6 p-6">
+
+        <!-- Create Commitment -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Create ZK Commitment</p>
+
+          <!-- Type selector -->
+          <div class="flex gap-2">
+            <button v-for="t in ['reputation', 'memory', 'task']" :key="t"
+              @click="zkCommitType = t as any"
+              class="px-3 py-1.5 text-xs rounded-sm transition-colors"
+              :class="zkCommitType === t ? 'bg-stone-800 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'">
+              {{ t.charAt(0).toUpperCase() + t.slice(1) }}
+            </button>
+          </div>
+
+          <!-- Reputation form -->
+          <div v-if="zkCommitType === 'reputation'" class="space-y-3">
+            <div class="space-y-1">
+              <label class="text-xs text-stone-500 tracking-wide">Claimed Score</label>
+              <input v-model.number="zkRepScore" type="number"
+                class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-xs font-mono text-stone-700 outline-none focus:border-stone-400 transition-colors" />
+            </div>
+            <p class="text-[10px] text-stone-400">Events: {{ zkRepEvents.length }} event(s) pre-configured</p>
+          </div>
+
+          <!-- Memory form -->
+          <div v-if="zkCommitType === 'memory'" class="space-y-3">
+            <div class="space-y-1">
+              <label class="text-xs text-stone-500 tracking-wide">Memory Type</label>
+              <select v-model="zkMemType"
+                class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-700 outline-none focus:border-stone-400 transition-colors">
+                <option value="episodic">Episodic</option>
+                <option value="semantic">Semantic</option>
+                <option value="procedural">Procedural</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Task form -->
+          <div v-if="zkCommitType === 'task'" class="space-y-3">
+            <div class="space-y-1">
+              <label class="text-xs text-stone-500 tracking-wide">Outcome</label>
+              <select v-model="zkTaskOutcome"
+                class="w-full bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-700 outline-none focus:border-stone-400 transition-colors">
+                <option value="success">Success</option>
+                <option value="partial">Partial</option>
+                <option value="failure">Failure</option>
+              </select>
+            </div>
+          </div>
+
+          <button
+            @click="createZKCommitment"
+            :disabled="isCreatingCommitment"
+            class="px-6 py-2.5 bg-stone-800 text-stone-100 text-xs tracking-widest uppercase hover:bg-stone-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+            {{ isCreatingCommitment ? 'Committing...' : 'Create Commitment' }}
+          </button>
+        </div>
+
+        <!-- Verify result -->
+        <div v-if="zkVerifyResult" class="flex items-center gap-2 p-3 rounded-sm"
+             :class="zkVerifyResult.valid ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'">
+          <span class="text-sm">{{ zkVerifyResult.valid ? 'V' : 'X' }}</span>
+          <div>
+            <p class="text-xs font-medium" :class="zkVerifyResult.valid ? 'text-emerald-700' : 'text-red-700'">
+              {{ zkVerifyResult.valid ? 'Commitment verified' : 'Verification failed' }}
+            </p>
+            <p v-if="zkVerifyResult.reason" class="text-xs text-stone-500">{{ zkVerifyResult.reason }}</p>
+          </div>
+        </div>
+
+        <!-- Commitments list -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <p class="text-xs tracking-widest uppercase text-stone-400">Commitments ({{ zkCommitments.length }})</p>
+            <button @click="fetchZKCommitments" class="text-[10px] text-stone-400 hover:text-stone-600 underline">Refresh</button>
+          </div>
+
+          <div v-if="zkCommitments.length === 0" class="text-xs text-stone-400 py-4 text-center">No commitments yet</div>
+
+          <div v-for="c in zkCommitments" :key="c.id"
+               class="border border-stone-100 p-3 rounded-sm space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-stone-700 capitalize">{{ c.proofType }}</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded-sm"
+                :class="{
+                  'bg-amber-100 text-amber-700': c.status === 'pending',
+                  'bg-emerald-100 text-emerald-700': c.status === 'verified',
+                  'bg-blue-100 text-blue-700': c.status === 'proved',
+                  'bg-red-100 text-red-700': c.status === 'failed',
+                }">{{ c.status }}</span>
+            </div>
+            <p class="text-[10px] font-mono text-stone-500 truncate">ID: {{ c.id }}</p>
+            <p class="text-[10px] font-mono text-stone-400 truncate">Output hash: {{ c.outputHash.slice(0, 24) }}...</p>
+            <p class="text-[10px] text-stone-400">{{ new Date(c.createdAt).toLocaleString() }}</p>
+            <div class="flex gap-2 pt-1">
+              <button @click="verifyZKCommitment(c.id)"
+                class="text-[10px] text-stone-500 underline hover:text-stone-700">Verify</button>
+              <a v-if="c.txSignature" :href="`https://solscan.io/tx/${c.txSignature}?cluster=devnet`" target="_blank"
+                class="text-[10px] text-stone-400 underline">Solscan</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="border border-stone-200 bg-white/70 p-5">
+          <p class="text-xs tracking-widest uppercase text-stone-400 mb-3">How ZK Proofs Work</p>
+          <ol class="space-y-2 text-xs text-stone-600 list-none pl-0">
+            <li class="flex gap-2"><span class="text-stone-300 select-none">1.</span>Agent creates a hash commitment from private inputs (reputation events, memory data, or task results)</li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">2.</span>Commitment is anchored on Solana via Memo program (tamper-proof timestamp)</li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">3.</span>SP1 zkVM worker generates a real ZK proof offline (reputation score, memory integrity, task completion)</li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">4.</span>Proof can be verified by anyone using the verification key — no private data revealed</li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">5.</span>Verification key is bound to the Solana commitment for on-chain auditability</li>
           </ol>
         </div>
 
