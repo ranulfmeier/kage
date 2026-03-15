@@ -34,6 +34,16 @@ test-ledger/
 # Agent keypairs (contain private keys)
 agent-keypair.json
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
 # Test / scratch files
 test-*.ts
 test-*.mjs
