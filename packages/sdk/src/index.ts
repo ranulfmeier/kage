@@ -11,3 +11,4 @@ export * from "./reasoning.js";
 export * from "./did.js";
 export * from "./reputation.js";
 export * from "./arweave.js";
+export * from "./team-vault.js";

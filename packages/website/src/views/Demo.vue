@@ -5,7 +5,7 @@ import { RouterLink } from 'vue-router';
 const WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3002';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
-type ActiveTab = 'chat' | 'delegation' | 'messaging' | 'groups' | 'payments' | 'did' | 'reputation';
+type ActiveTab = 'chat' | 'delegation' | 'messaging' | 'groups' | 'payments' | 'did' | 'reputation' | 'teams';
 
 interface StoreProof {
   cid?: string;
@@ -180,6 +180,58 @@ const lastIssuedCred = ref<DIDCredential | null>(null);
 const verifyCredJson = ref('');
 const verifyResult = ref<{ valid: boolean; reason?: string } | null>(null);
 
+// Team Vault state
+interface TeamMemberUI {
+  publicKey: string;
+  x25519PublicKey: string;
+  role: 'owner' | 'admin' | 'member';
+  displayName?: string;
+  addedAt: number;
+  addedBy: string;
+}
+interface TeamSecretUI {
+  id: string;
+  label: string;
+  description?: string;
+  createdBy: string;
+  createdAt: number;
+  onChainTx?: string;
+  explorerUrl?: string;
+}
+interface TeamEventUI {
+  type: string;
+  actor: string;
+  payload: Record<string, unknown>;
+  timestamp: number;
+  onChainTx?: string;
+}
+interface TeamUI {
+  id: string;
+  name: string;
+  description?: string;
+  threshold: number;
+  members: TeamMemberUI[];
+  secrets: TeamSecretUI[];
+  eventLog: TeamEventUI[];
+  createdBy: string;
+  createdAt: number;
+  onChainTx?: string;
+  explorerUrl?: string;
+}
+const teams = ref<TeamUI[]>([]);
+const selectedTeam = ref<TeamUI | null>(null);
+const isCreatingTeam = ref(false);
+const isStoringSecret = ref(false);
+const teamName = ref('');
+const teamDescription = ref('');
+const teamThreshold = ref(1);
+const secretLabel = ref('');
+const secretDescription = ref('');
+const secretData = ref('');
+const retrievedSecret = ref<{ label: string; data: unknown } | null>(null);
+const agentX25519ForTeams = ref('');
+const lastTeamTx = ref('');
+
 // Deep Think & reasoning step state
 const deepThinkEnabled = ref(false);
 const liveReasoningSteps = ref<string[]>([]);
@@ -303,12 +355,39 @@ function connect() {
       verifyResult.value = { valid: msg.valid, reason: msg.reason };
     } else if (msg.type === 'credentials_list') {
       didCredentials.value = msg.credentials ?? [];
+    } else if (msg.type === 'team_list') {
+      teams.value = msg.teams ?? [];
+    } else if (msg.type === 'team_created') {
+      isCreatingTeam.value = false;
+      teams.value.push(msg.team);
+      selectedTeam.value = msg.team;
+      lastTeamTx.value = msg.team.onChainTx ?? '';
+      teamName.value = '';
+      teamDescription.value = '';
+    } else if (msg.type === 'team_updated') {
+      const idx = teams.value.findIndex(t => t.id === msg.team.id);
+      if (idx >= 0) teams.value[idx] = msg.team;
+      if (selectedTeam.value?.id === msg.team.id) selectedTeam.value = msg.team;
+    } else if (msg.type === 'team_secret_stored') {
+      isStoringSecret.value = false;
+      secretLabel.value = '';
+      secretDescription.value = '';
+      secretData.value = '';
+      lastTeamTx.value = msg.secret.onChainTx ?? '';
+      if (selectedTeam.value) {
+        if (!selectedTeam.value.secrets) selectedTeam.value.secrets = [];
+        selectedTeam.value.secrets.push(msg.secret);
+      }
+    } else if (msg.type === 'team_secret_retrieved') {
+      retrievedSecret.value = { label: msg.label, data: msg.data };
     } else if (msg.type === 'error') {
       isSendingPayment.value = false;
       isScanning.value = false;
       isDelegating.value = false;
       isSendingMsg.value = false;
       isIssuingCred.value = false;
+      isCreatingTeam.value = false;
+      isStoringSecret.value = false;
       isTyping.value = false;
       messages.value.push({
         role: 'system',
@@ -380,6 +459,110 @@ function tierColor(tier: string) {
 
 function scoreBarWidth(score: number) {
   return Math.min(100, Math.max(0, score / 10)) + '%';
+}
+
+// ─── Tab context info ────────────────────────────────────────────────────────
+
+const tabInfo: Record<string, { name: string; description: string; badges: string[] }> = {
+  chat: {
+    name: 'Memory Vault',
+    description: 'Chat with the agent and ask it to remember facts. Every memory is AES-256-GCM encrypted on-device before leaving your browser, then anchored on Solana.',
+    badges: ['AES-256-GCM', 'Solana PDA', 'Viewing Key'],
+  },
+  delegation: {
+    name: 'Task Delegation',
+    description: 'Delegate tasks to other agents over an encrypted channel. The task payload is never exposed on-chain — only a SHA-256 commitment is written to Solana Memo.',
+    badges: ['X25519 DH', 'Solana Memo', 'Encrypted payload'],
+  },
+  messaging: {
+    name: 'Encrypted Messaging',
+    description: 'Send end-to-end encrypted messages to any agent using their X25519 public key. Messages are AES-256-GCM encrypted via Diffie-Hellman key agreement.',
+    badges: ['X25519 DH', 'AES-256-GCM', 'Solana Memo'],
+  },
+  groups: {
+    name: 'Group Vaults',
+    description: 'Create m-of-n threshold vaults where any m members can reconstruct the group key and decrypt shared secrets. Built on Shamir\'s Secret Sharing over GF(256).',
+    badges: ['Shamir SSS', 'GF(256)', 'AES-256-GCM'],
+  },
+  teams: {
+    name: 'Team Vaults',
+    description: 'Role-based (owner / admin / member) team secret management built on top of Group Vaults. Invite members, store named secrets, and audit every event on-chain.',
+    badges: ['Role-based', 'Shamir SSS', 'On-chain audit'],
+  },
+  payments: {
+    name: 'Shielded Payments',
+    description: 'Send SOL to a one-time stealth address derived from the recipient\'s viewing key. The on-chain link between sender and recipient\'s identity is broken.',
+    badges: ['Stealth address', 'X25519 DH', 'Umbra-style'],
+  },
+  did: {
+    name: 'Decentralized Identity',
+    description: 'Each agent has a W3C-compatible did:sol:<pubkey> document. Agents can issue and verify signed Verifiable Credentials committed on-chain.',
+    badges: ['W3C DID', 'Ed25519', 'Verifiable Credentials'],
+  },
+  reputation: {
+    name: 'Reputation System',
+    description: 'On-chain reputation scoring (0–1000) across four tiers: Newcomer → Trusted → Verified → Elite. Every task outcome and slash event is written to Solana Memo.',
+    badges: ['0–1000 score', 'Solana Memo', 'Tamper-proof'],
+  },
+};
+
+// ─── Team Vault functions ───────────────────────────────────────────────────
+
+function fetchTeams() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'team_list' }));
+}
+
+function createTeam() {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !teamName.value.trim()) return;
+  isCreatingTeam.value = true;
+  ws.send(JSON.stringify({
+    type: 'team_create',
+    name: teamName.value.trim(),
+    description: teamDescription.value.trim() || undefined,
+    threshold: teamThreshold.value,
+  }));
+}
+
+function selectTeam(team: TeamUI) {
+  selectedTeam.value = team;
+  retrievedSecret.value = null;
+}
+
+function storeSecret() {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !selectedTeam.value || !secretLabel.value.trim()) return;
+  isStoringSecret.value = true;
+  let data: unknown;
+  try {
+    data = JSON.parse(secretData.value);
+  } catch {
+    data = secretData.value;
+  }
+  ws.send(JSON.stringify({
+    type: 'team_store_secret',
+    teamId: selectedTeam.value.id,
+    label: secretLabel.value.trim(),
+    description: secretDescription.value.trim() || undefined,
+    data,
+  }));
+}
+
+function retrieveSecret(secretId: string) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !selectedTeam.value) return;
+  retrievedSecret.value = null;
+  ws.send(JSON.stringify({ type: 'team_retrieve_secret', teamId: selectedTeam.value.id, secretId }));
+}
+
+function roleLabel(role: string) {
+  return { owner: 'Owner', admin: 'Admin', member: 'Member' }[role] ?? role;
+}
+
+function roleBadge(role: string) {
+  return {
+    owner: 'bg-yellow-100 text-yellow-800 border border-yellow-200',
+    admin: 'bg-violet-100 text-violet-800 border border-violet-200',
+    member: 'bg-stone-100 text-stone-600 border border-stone-200',
+  }[role] ?? 'bg-stone-100 text-stone-600';
 }
 
 function fetchDID() {
@@ -707,129 +890,194 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#F5F0E8]" style="font-family: 'Shippori Mincho', serif;">
+  <div class="h-screen overflow-hidden flex flex-col bg-[#F5F0E8]" style="font-family: 'Shippori Mincho', serif;">
 
     <!-- Header -->
-    <header class="fixed top-0 left-0 right-0 z-50 bg-[#F5F0E8]/95 backdrop-blur-sm border-b border-stone-200">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+    <header class="shrink-0 border-b border-stone-200 bg-[#F5F0E8]/95 backdrop-blur-sm z-50">
+      <div class="px-4 sm:px-6 py-3 flex items-center justify-between">
         <RouterLink to="/" class="flex items-center gap-3">
-          <img src="/kage_logo.png" alt="Kage" class="h-10 sm:h-12 w-auto" />
+          <img src="/kage_logo.png" alt="Kage" class="h-9 w-auto" />
         </RouterLink>
-        <nav class="hidden sm:flex items-center gap-8">
-          <RouterLink to="/docs" class="text-sm tracking-widest uppercase text-stone-500 hover:text-stone-900 transition-colors">Docs</RouterLink>
-          <RouterLink to="/roadmap" class="text-sm tracking-widest uppercase text-stone-500 hover:text-stone-900 transition-colors">Roadmap</RouterLink>
-          <a href="https://github.com/ranulfmeier/kage" target="_blank" class="text-sm tracking-widest uppercase text-stone-500 hover:text-stone-900 transition-colors">GitHub</a>
+        <nav class="hidden sm:flex items-center gap-6 text-xs tracking-widest uppercase">
+          <RouterLink to="/docs" class="text-stone-500 hover:text-stone-900 transition-colors">Docs</RouterLink>
+          <RouterLink to="/roadmap" class="text-stone-500 hover:text-stone-900 transition-colors">Roadmap</RouterLink>
+          <a href="https://github.com/ranulfmeier/kage" target="_blank" class="text-stone-500 hover:text-stone-900 transition-colors">GitHub</a>
         </nav>
-        <button class="sm:hidden text-stone-700" @click="mobileMenuOpen = !mobileMenuOpen">
-          <svg v-if="!mobileMenuOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <button class="sm:hidden text-stone-600" @click="mobileMenuOpen = !mobileMenuOpen">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16"/>
-          </svg>
-          <svg v-else class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/>
           </svg>
         </button>
       </div>
-      <div v-if="mobileMenuOpen" class="sm:hidden border-t border-stone-200 bg-[#F5F0E8] px-6 py-4 flex flex-col gap-4">
-        <RouterLink to="/docs" class="text-sm tracking-widest uppercase text-stone-600" @click="mobileMenuOpen = false">Docs</RouterLink>
-        <RouterLink to="/roadmap" class="text-sm tracking-widest uppercase text-stone-600" @click="mobileMenuOpen = false">Roadmap</RouterLink>
-        <a href="https://github.com/ranulfmeier/kage" target="_blank" class="text-sm tracking-widest uppercase text-stone-600">GitHub</a>
+      <div v-if="mobileMenuOpen" class="sm:hidden border-t border-stone-200 px-6 py-4 flex flex-col gap-3 text-xs tracking-widest uppercase text-stone-600">
+        <RouterLink to="/docs" @click="mobileMenuOpen = false">Docs</RouterLink>
+        <RouterLink to="/roadmap" @click="mobileMenuOpen = false">Roadmap</RouterLink>
+        <a href="https://github.com/ranulfmeier/kage" target="_blank">GitHub</a>
       </div>
     </header>
 
-    <!-- Main -->
-    <main class="pt-24 pb-12 px-4 sm:px-6 max-w-4xl mx-auto">
+    <!-- Body = Sidebar + Content -->
+    <div class="flex flex-1 min-h-0">
 
-      <!-- Page Header -->
-      <div class="mb-10 text-center">
-        <p class="text-xs tracking-[0.3em] uppercase text-stone-400 mb-4">Live Demo</p>
-        <h1 class="text-4xl sm:text-5xl font-light text-stone-900 mb-4">
-          Chat with Kage
-        </h1>
-        <p class="text-stone-500 text-sm sm:text-base max-w-xl mx-auto leading-relaxed">
-          Your memories are encrypted on-device before leaving your browser.
-          The agent runs on Solana devnet.
-        </p>
-      </div>
+      <!-- ── Sidebar (desktop) ── -->
+      <aside class="w-52 shrink-0 hidden sm:flex flex-col border-r border-stone-200 bg-stone-50/70 overflow-y-auto">
 
-      <!-- Status Bar -->
-      <div class="flex items-center justify-between mb-4 px-1">
-        <div class="flex items-center gap-2">
-          <div
-            class="w-2 h-2 rounded-full transition-colors"
-            :class="isConnected ? 'bg-emerald-500' : 'bg-stone-300'"
-          ></div>
-          <span class="text-xs text-stone-400 tracking-wide">
-            {{ isConnected ? `Agent ${agentId.slice(0,8)}…` : 'Disconnected' }}
-          </span>
-        </div>
-        <div class="flex items-center gap-3">
-          <button
-            v-if="isConnected"
-            @click="fetchMemories"
-            class="text-xs text-stone-400 hover:text-stone-700 tracking-widest uppercase transition-colors"
-          >
-            Memories
-          </button>
-          <button
-            @click="connect"
-            class="text-xs text-stone-400 hover:text-stone-700 tracking-widest uppercase transition-colors"
-          >
+        <!-- Agent Status -->
+        <div class="px-4 py-3.5 border-b border-stone-200">
+          <div class="flex items-center gap-2 mb-1">
+            <div class="w-1.5 h-1.5 rounded-full shrink-0 transition-colors" :class="isConnected ? 'bg-emerald-500' : 'bg-stone-300'"></div>
+            <span class="text-xs text-stone-600">{{ isConnected ? 'Connected' : 'Disconnected' }}</span>
+          </div>
+          <p v-if="agentId" class="text-[10px] font-mono text-stone-400 truncate leading-tight">{{ agentId.slice(0,18) }}…</p>
+          <button @click="connect" class="mt-1.5 text-[10px] tracking-widest uppercase text-stone-400 hover:text-stone-700 transition-colors">
             {{ isConnected ? 'Restart' : 'Connect' }}
           </button>
         </div>
+
+        <!-- Navigation -->
+        <nav class="flex-1 px-2 py-3 space-y-4 text-xs">
+
+          <div>
+            <p class="text-[9px] font-medium tracking-[0.18em] uppercase text-stone-400 px-2 mb-1">Memory</p>
+            <button @click="activeTab = 'chat'"
+              class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-sm transition-colors text-left"
+              :class="activeTab === 'chat' ? 'bg-stone-800 text-white' : 'text-stone-600 hover:bg-stone-200'">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
+              </svg>
+              Memory Vault
+            </button>
+          </div>
+
+          <div>
+            <p class="text-[9px] font-medium tracking-[0.18em] uppercase text-stone-400 px-2 mb-1">Multi-Agent</p>
+            <button @click="activeTab = 'delegation'; fetchTasks()"
+              class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-sm transition-colors text-left"
+              :class="activeTab === 'delegation' ? 'bg-stone-800 text-white' : 'text-stone-600 hover:bg-stone-200'">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+              </svg>
+              Delegation
+            </button>
+            <button @click="activeTab = 'messaging'; fetchAgentX25519(); fetchInbox()"
+              class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-sm transition-colors text-left"
+              :class="activeTab === 'messaging' ? 'bg-stone-800 text-white' : 'text-stone-600 hover:bg-stone-200'">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+              </svg>
+              Messaging
+            </button>
+            <button @click="activeTab = 'groups'; fetchGroups(); fetchAgentX25519()"
+              class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-sm transition-colors text-left"
+              :class="activeTab === 'groups' ? 'bg-stone-800 text-white' : 'text-stone-600 hover:bg-stone-200'">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+              </svg>
+              Group Vaults
+            </button>
+            <button @click="activeTab = 'teams'; fetchTeams()"
+              class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-sm transition-colors text-left"
+              :class="activeTab === 'teams' ? 'bg-stone-800 text-white' : 'text-stone-600 hover:bg-stone-200'">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+              </svg>
+              Team Vaults
+            </button>
+          </div>
+
+          <div>
+            <p class="text-[9px] font-medium tracking-[0.18em] uppercase text-stone-400 px-2 mb-1">Privacy</p>
+            <button @click="activeTab = 'payments'; fetchPayments()"
+              class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-sm transition-colors text-left"
+              :class="activeTab === 'payments' ? 'bg-stone-800 text-white' : 'text-stone-600 hover:bg-stone-200'">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+              </svg>
+              Payments
+            </button>
+          </div>
+
+          <div>
+            <p class="text-[9px] font-medium tracking-[0.18em] uppercase text-stone-400 px-2 mb-1">Identity</p>
+            <button @click="activeTab = 'did'; fetchDID(); fetchDIDCredentials()"
+              class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-sm transition-colors text-left"
+              :class="activeTab === 'did' ? 'bg-stone-800 text-white' : 'text-stone-600 hover:bg-stone-200'">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/>
+              </svg>
+              DID
+            </button>
+            <button @click="activeTab = 'reputation'; fetchReputation()"
+              class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-sm transition-colors text-left"
+              :class="activeTab === 'reputation' ? 'bg-stone-800 text-white' : 'text-stone-600 hover:bg-stone-200'">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
+              </svg>
+              Reputation
+            </button>
+          </div>
+
+        </nav>
+
+        <!-- Sidebar footer: agent info -->
+        <div class="px-4 py-3 border-t border-stone-200 space-y-2">
+          <div class="flex justify-between items-center text-[10px]">
+            <span class="text-stone-400">Network</span>
+            <span class="text-stone-600 font-medium">Solana Devnet</span>
+          </div>
+          <div class="flex justify-between items-center text-[10px]">
+            <span class="text-stone-400">Model</span>
+            <span class="text-stone-600 font-medium">{{ deepThinkEnabled ? 'Sonnet 3.7' : 'Haiku' }}</span>
+          </div>
+          <div class="flex justify-between items-center text-[10px]">
+            <span class="text-stone-400">Privacy</span>
+            <span class="text-stone-600 font-medium">Umbra</span>
+          </div>
+          <button v-if="isConnected" @click="fetchMemories"
+            class="block text-[10px] text-stone-400 hover:text-stone-600 transition-colors underline underline-offset-2">
+            View vault →
+          </button>
+        </div>
+
+      </aside>
+
+      <!-- ── Mobile bottom tab bar ── -->
+      <div class="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#F5F0E8]/95 backdrop-blur-sm border-t border-stone-200 grid grid-cols-8">
+        <button v-for="tab in [
+          { id: 'chat',       label: 'Memory' },
+          { id: 'delegation', label: 'Delegate' },
+          { id: 'messaging',  label: 'Messages' },
+          { id: 'groups',     label: 'Groups' },
+          { id: 'teams',      label: 'Teams' },
+          { id: 'payments',   label: 'Payments' },
+          { id: 'did',        label: 'DID' },
+          { id: 'reputation', label: 'Rep' },
+        ]" :key="tab.id"
+          @click="activeTab = tab.id as ActiveTab; if(tab.id==='delegation') fetchTasks(); if(tab.id==='messaging'){fetchAgentX25519();fetchInbox();} if(tab.id==='groups'){fetchGroups();fetchAgentX25519();} if(tab.id==='payments') fetchPayments(); if(tab.id==='did'){fetchDID();fetchDIDCredentials();} if(tab.id==='reputation') fetchReputation(); if(tab.id==='teams') fetchTeams();"
+          class="py-2.5 text-[9px] tracking-widest uppercase transition-colors"
+          :class="activeTab === tab.id ? 'bg-stone-200 text-stone-800 font-medium' : 'text-stone-400'"
+        >{{ tab.label }}</button>
       </div>
 
-      <!-- Tab bar -->
-      <div class="flex gap-0 border border-stone-200 mb-4 w-fit overflow-x-auto">
-        <button
-          @click="activeTab = 'chat'"
-          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors whitespace-nowrap"
-          :class="activeTab === 'chat' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
-        >
-          Memory Vault
-        </button>
-        <button
-          @click="activeTab = 'delegation'; fetchTasks()"
-          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
-          :class="activeTab === 'delegation' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
-        >
-          Task Delegation
-        </button>
-        <button
-          @click="activeTab = 'messaging'; fetchAgentX25519(); fetchInbox()"
-          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
-          :class="activeTab === 'messaging' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
-        >
-          Messaging
-        </button>
-        <button
-          @click="activeTab = 'groups'; fetchGroups(); fetchAgentX25519()"
-          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
-          :class="activeTab === 'groups' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
-        >
-          Group Vaults
-        </button>
-        <button
-          @click="activeTab = 'payments'; fetchPayments()"
-          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
-          :class="activeTab === 'payments' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
-        >
-          Payments
-        </button>
-        <button
-          @click="activeTab = 'did'; fetchDID(); fetchDIDCredentials()"
-          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
-          :class="activeTab === 'did' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
-        >
-          Identity
-        </button>
-        <button
-          @click="activeTab = 'reputation'; fetchReputation()"
-          class="px-4 py-2 text-xs tracking-widest uppercase transition-colors border-l border-stone-200 whitespace-nowrap"
-          :class="activeTab === 'reputation' ? 'bg-stone-800 text-stone-100' : 'text-stone-500 hover:text-stone-800'"
-        >
-          Reputation
-        </button>
+      <!-- ── Main content area ── -->
+      <main class="flex-1 min-h-0 overflow-y-auto pb-16 sm:pb-0">
+        <div class="max-w-3xl mx-auto px-4 sm:px-6 py-5">
+
+      <!-- ── Context bar ── -->
+      <div class="mb-5 pb-4 border-b border-stone-200">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h2 class="text-base font-medium text-stone-800 tracking-wide">{{ tabInfo[activeTab]?.name }}</h2>
+            <p class="text-xs text-stone-400 mt-1 leading-relaxed max-w-xl">{{ tabInfo[activeTab]?.description }}</p>
+          </div>
+          <div class="flex gap-1.5 flex-wrap justify-end shrink-0 pt-0.5">
+            <span
+              v-for="badge in tabInfo[activeTab]?.badges"
+              :key="badge"
+              class="text-[9px] tracking-widest uppercase px-2 py-0.5 bg-stone-100 text-stone-500 border border-stone-200 whitespace-nowrap"
+            >{{ badge }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- Memory Panel -->
@@ -859,7 +1107,7 @@ onUnmounted(() => {
         <!-- Messages -->
         <div
           ref="messagesEl"
-          class="h-[420px] sm:h-[500px] overflow-y-auto p-5 sm:p-6 space-y-5 scroll-smooth"
+          class="h-[500px] sm:h-[560px] overflow-y-auto p-5 sm:p-6 space-y-5 scroll-smooth"
           style="scrollbar-width: thin; scrollbar-color: #d6d3d1 transparent;"
         >
           <!-- Empty state -->
@@ -907,7 +1155,7 @@ onUnmounted(() => {
                 <div v-if="msg.reasoning" class="mt-2 border border-stone-200 bg-stone-50/80 px-3 py-2.5 text-xs space-y-1.5">
                   <div class="flex items-center justify-between">
                     <div class="flex items-center gap-1.5">
-                      <span class="text-stone-400 font-mono">🔒</span>
+                      <span class="text-stone-400 font-mono">—</span>
                       <span class="text-stone-500 tracking-widest uppercase text-[10px] font-medium">Reasoning Hidden</span>
                       <span class="text-stone-400 font-mono text-[10px]">{{ msg.reasoning.charCount }} chars encrypted</span>
                     </div>
@@ -1017,7 +1265,7 @@ onUnmounted(() => {
                 ? 'bg-violet-800 text-violet-100 border-violet-800 hover:bg-violet-900'
                 : 'bg-transparent text-stone-400 border-stone-200 hover:border-stone-400 hover:text-stone-600'"
             >
-              {{ deepThinkEnabled ? '🧠 Deep' : '🧠' }}
+              {{ deepThinkEnabled ? 'Deep ON' : 'Deep' }}
             </button>
             <button
               @click="send"
@@ -1029,7 +1277,7 @@ onUnmounted(() => {
           </div>
           <p class="text-xs text-stone-400 mt-2">
             Try <span class="font-mono text-stone-500">/memories</span> · or: <span class="font-mono text-stone-500">delegate &lt;task&gt; to &lt;pubkey&gt;</span>
-            · <span :class="deepThinkEnabled ? 'text-violet-500 font-medium' : 'text-stone-400'">🧠 Deep Think {{ deepThinkEnabled ? 'ON' : 'OFF' }}</span>
+            · <span :class="deepThinkEnabled ? 'text-violet-500 font-medium' : 'text-stone-400'">Deep Think {{ deepThinkEnabled ? 'ON' : 'OFF' }}</span>
           </p>
         </div>
       </div>
@@ -1343,7 +1591,7 @@ onUnmounted(() => {
               <span class="font-mono text-xs text-stone-600">{{ g.groupId.slice(0, 28) }}…</span>
               <span class="text-[10px] px-1.5 py-0.5 rounded"
                 :class="g.hasKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">
-                {{ g.hasKey ? '🔓 key ready' : '🔒 locked' }}
+                {{ g.hasKey ? 'key ready' : 'locked' }}
               </span>
             </div>
             <div class="flex gap-4 text-xs text-stone-400">
@@ -1784,6 +2032,178 @@ onUnmounted(() => {
 
       </div>
 
+      <!-- ── TEAMS TAB ── -->
+      <div v-if="activeTab === 'teams'" class="space-y-4">
+
+        <!-- Create Team -->
+        <div class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Create Team Vault</p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-stone-400 mb-1 block">Team Name</label>
+              <input
+                v-model="teamName"
+                placeholder="e.g. Trading Alpha Squad"
+                class="w-full px-3 py-2 text-sm bg-stone-50 border border-stone-200 focus:outline-none focus:border-stone-400"
+              />
+            </div>
+            <div>
+              <label class="text-xs text-stone-400 mb-1 block">Threshold (m-of-1)</label>
+              <input
+                v-model.number="teamThreshold"
+                type="number"
+                min="1"
+                class="w-full px-3 py-2 text-sm bg-stone-50 border border-stone-200 focus:outline-none focus:border-stone-400"
+              />
+            </div>
+          </div>
+          <div>
+            <label class="text-xs text-stone-400 mb-1 block">Description (optional)</label>
+            <input
+              v-model="teamDescription"
+              placeholder="Describe this team vault…"
+              class="w-full px-3 py-2 text-sm bg-stone-50 border border-stone-200 focus:outline-none focus:border-stone-400"
+            />
+          </div>
+          <button
+            @click="createTeam"
+            :disabled="!isConnected || isCreatingTeam || !teamName.trim()"
+            class="w-full py-2 text-xs tracking-widest uppercase border border-stone-800 bg-stone-800 text-stone-100 hover:bg-stone-700 disabled:opacity-30 transition-colors"
+          >
+            {{ isCreatingTeam ? 'Creating…' : '+ Create Team Vault' }}
+          </button>
+          <div v-if="lastTeamTx && teams.length > 0" class="text-xs text-stone-400">
+            Last tx:
+            <a :href="`https://solscan.io/tx/${lastTeamTx}?cluster=devnet`" target="_blank" class="text-emerald-600 font-mono hover:underline">
+              {{ lastTeamTx.slice(0, 20) }}…
+            </a>
+          </div>
+        </div>
+
+        <!-- Teams List -->
+        <div v-if="teams.length > 0" class="border border-stone-200 bg-white/70 p-5 space-y-3">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Your Teams</p>
+          <div
+            v-for="team in teams"
+            :key="team.id"
+            @click="selectTeam(team)"
+            class="p-3 border cursor-pointer transition-colors"
+            :class="selectedTeam?.id === team.id ? 'border-stone-800 bg-stone-800/5' : 'border-stone-100 hover:border-stone-300'"
+          >
+            <div class="flex items-center justify-between mb-1">
+              <p class="text-sm font-medium text-stone-800">{{ team.name }}</p>
+              <span class="text-xs text-stone-400">{{ team.members.length }} members · {{ team.threshold }}-of-{{ team.members.length }}</span>
+            </div>
+            <p v-if="team.description" class="text-xs text-stone-500">{{ team.description }}</p>
+            <div class="flex items-center gap-2 mt-2 flex-wrap">
+              <span
+                v-for="m in team.members"
+                :key="m.publicKey"
+                class="px-2 py-0.5 text-xs rounded"
+                :class="roleBadge(m.role)"
+              >
+                {{ m.displayName || m.publicKey.slice(0, 6) + '…' }} · {{ roleLabel(m.role) }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Selected Team: Secrets -->
+        <div v-if="selectedTeam" class="border border-stone-200 bg-white/70 p-5 space-y-4">
+          <p class="text-xs tracking-widest uppercase text-stone-400">Secrets — {{ selectedTeam.name }}</p>
+
+          <!-- Store Secret Form -->
+          <div class="space-y-2 pb-4 border-b border-stone-100">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                v-model="secretLabel"
+                placeholder="Label (e.g. API Key)"
+                class="px-3 py-2 text-sm bg-stone-50 border border-stone-200 focus:outline-none focus:border-stone-400"
+              />
+              <input
+                v-model="secretDescription"
+                placeholder="Description (optional)"
+                class="px-3 py-2 text-sm bg-stone-50 border border-stone-200 focus:outline-none focus:border-stone-400"
+              />
+            </div>
+            <textarea
+              v-model="secretData"
+              placeholder='Secret data — plain text or JSON (e.g. {"key":"sk-...","tier":"pro"})'
+              rows="2"
+              class="w-full px-3 py-2 text-sm bg-stone-50 border border-stone-200 focus:outline-none focus:border-stone-400 resize-none font-mono"
+            />
+            <button
+              @click="storeSecret"
+              :disabled="!isConnected || isStoringSecret || !secretLabel.trim() || !secretData.trim()"
+              class="w-full py-2 text-xs tracking-widest uppercase border border-stone-800 bg-stone-800 text-stone-100 hover:bg-stone-700 disabled:opacity-30 transition-colors"
+            >
+              {{ isStoringSecret ? 'Encrypting + Storing…' : 'Store Secret (AES-256-GCM)' }}
+            </button>
+          </div>
+
+          <!-- Secrets List -->
+          <div v-if="selectedTeam.secrets && selectedTeam.secrets.length > 0" class="space-y-2">
+            <div
+              v-for="secret in selectedTeam.secrets"
+              :key="secret.id"
+              class="flex items-center justify-between p-3 bg-stone-50 border border-stone-100"
+            >
+              <div>
+                <p class="text-sm font-medium text-stone-700">{{ secret.label }}</p>
+                <p v-if="secret.description" class="text-xs text-stone-400">{{ secret.description }}</p>
+                <a
+                  v-if="secret.explorerUrl"
+                  :href="secret.explorerUrl"
+                  target="_blank"
+                  class="text-xs text-emerald-600 hover:underline font-mono"
+                >
+                  ↗ on-chain
+                </a>
+              </div>
+              <button
+                @click="retrieveSecret(secret.id)"
+                :disabled="!isConnected"
+                class="px-3 py-1 text-xs border border-stone-300 text-stone-600 hover:border-stone-600 disabled:opacity-30 transition-colors"
+              >
+                Decrypt
+              </button>
+            </div>
+          </div>
+          <p v-else class="text-xs text-stone-400 italic">No secrets stored yet.</p>
+
+          <!-- Retrieved Secret -->
+          <div v-if="retrievedSecret" class="bg-emerald-50 border border-emerald-200 p-4 space-y-1">
+            <p class="text-xs tracking-widest uppercase text-emerald-500">Decrypted Secret</p>
+            <p class="text-sm font-medium text-stone-700">{{ retrievedSecret.label }}</p>
+            <pre class="text-xs text-stone-600 bg-white border border-emerald-100 p-2 rounded overflow-auto">{{ JSON.stringify(retrievedSecret.data, null, 2) }}</pre>
+          </div>
+
+          <!-- Event Log -->
+          <div v-if="selectedTeam.eventLog && selectedTeam.eventLog.length > 0" class="space-y-1">
+            <p class="text-xs tracking-widest uppercase text-stone-400 mb-2">Event Log</p>
+            <div
+              v-for="(ev, i) in [...selectedTeam.eventLog].reverse().slice(0, 5)"
+              :key="i"
+              class="flex items-start gap-2 text-xs text-stone-500"
+            >
+              <span class="text-stone-300 shrink-0 font-mono">{{ new Date(ev.timestamp).toLocaleTimeString() }}</span>
+              <span class="font-medium text-stone-600">{{ ev.type.replace(/_/g, ' ') }}</span>
+              <a v-if="ev.onChainTx" :href="`https://solscan.io/tx/${ev.onChainTx}?cluster=devnet`" target="_blank" class="text-emerald-600 hover:underline shrink-0">↗</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Info Box -->
+        <div class="border border-stone-100 p-4 text-xs text-stone-500 space-y-1 leading-relaxed">
+          <p class="text-xs tracking-widest uppercase text-stone-400 mb-2">How Team Vaults Work</p>
+          <p>Team Vaults add organizational management (roles, invites, named secrets) on top of the cryptographic Group Vault primitive.</p>
+          <p>Secrets are encrypted with <span class="font-mono text-stone-700">AES-256-GCM</span> using a team key distributed via <span class="font-mono text-stone-700">Shamir's Secret Sharing (m-of-n SSS)</span> over GF(256).</p>
+          <p>Every event — team creation, member invite, secret store — is committed on-chain via Solana Memo. Tamper-proof audit trail.</p>
+          <p>Roles: <span class="font-medium text-yellow-700">Owner</span> (full control), <span class="font-medium text-violet-700">Admin</span> (manage members/secrets), <span class="font-medium text-stone-700">Member</span> (read secrets).</p>
+        </div>
+
+      </div>
+
       <!-- ── IDENTITY (DID) TAB ── -->
       <div v-if="activeTab === 'did'" class="space-y-4">
 
@@ -1979,24 +2399,10 @@ onUnmounted(() => {
 
       </div>
 
-      <!-- Info Row -->
-      <div class="mt-8 grid grid-cols-3 gap-4 text-center">
-        <div class="border border-stone-200 p-4">
-          <p class="text-xs tracking-widest uppercase text-stone-400 mb-1">Network</p>
-          <p class="text-sm text-stone-700">Solana Devnet</p>
         </div>
-        <div class="border border-stone-200 p-4">
-          <p class="text-xs tracking-widest uppercase text-stone-400 mb-1">Privacy</p>
-          <p class="text-sm text-stone-700">Umbra Shielded</p>
-        </div>
-        <div class="border border-stone-200 p-4">
-          <p class="text-xs tracking-widest uppercase text-stone-400 mb-1">Model</p>
-          <p class="text-sm text-stone-700">{{ deepThinkEnabled ? 'Claude 3.7 Sonnet' : 'Claude Haiku' }}</p>
-        </div>
-      </div>
+      </main>
 
-    </main>
-
+    </div>
   </div>
 </template>
 

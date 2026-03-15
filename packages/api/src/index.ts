@@ -289,6 +289,95 @@ app.post("/reputation/snapshot", async (_req, res) => {
   }
 });
 
+// ── Team Vault Endpoints ───────────────────────────────────────────────────────
+
+app.get("/team", async (_req, res) => {
+  try {
+    const agent = await getAgent();
+    res.json({ teams: agent.listTeams() });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/team/create", async (req, res) => {
+  try {
+    const agent = await getAgent();
+    const { name, description, members, threshold } = req.body as {
+      name: string;
+      description?: string;
+      members?: Array<{ publicKey: string; x25519PublicKey: string; role: "owner" | "admin" | "member"; displayName?: string }>;
+      threshold?: number;
+    };
+    if (!name) { res.status(400).json({ error: "name required" }); return; }
+    const team = await agent.createTeam({ name, description, members, threshold });
+    res.json({ team });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/team/:teamId/invite", async (req, res) => {
+  try {
+    const agent = await getAgent();
+    const { teamId } = req.params;
+    const { publicKey, x25519PublicKey, role, displayName } = req.body;
+    if (!publicKey || !x25519PublicKey) { res.status(400).json({ error: "publicKey and x25519PublicKey required" }); return; }
+    const team = await agent.inviteTeamMember(teamId, { publicKey, x25519PublicKey, role: role ?? "member", displayName });
+    res.json({ team });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/team/:teamId/remove", async (req, res) => {
+  try {
+    const agent = await getAgent();
+    const { teamId } = req.params;
+    const { memberPubkey } = req.body;
+    if (!memberPubkey) { res.status(400).json({ error: "memberPubkey required" }); return; }
+    const team = await agent.removeTeamMember(teamId, memberPubkey);
+    res.json({ team });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/team/:teamId/secret", async (req, res) => {
+  try {
+    const agent = await getAgent();
+    const { teamId } = req.params;
+    const { label, description, data } = req.body;
+    if (!label || data === undefined) { res.status(400).json({ error: "label and data required" }); return; }
+    const secret = await agent.storeTeamSecret(teamId, { label, description, data });
+    res.json({ secret });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/team/:teamId/secret/:secretId", async (req, res) => {
+  try {
+    const agent = await getAgent();
+    const { teamId, secretId } = req.params;
+    const result = agent.retrieveTeamSecret(teamId, secretId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/team/:teamId", async (req, res) => {
+  try {
+    const agent = await getAgent();
+    const team = agent.getTeam(req.params.teamId);
+    if (!team) { res.status(404).json({ error: "Team not found" }); return; }
+    res.json({ team });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ── DID Endpoints ─────────────────────────────────────────────────────────────
 
 app.get("/did", async (_req, res) => {
@@ -660,6 +749,57 @@ wss.on("connection", async (ws: WebSocket) => {
         try {
           const snapshot = await agent.commitReputationSnapshot();
           ws.send(JSON.stringify({ type: "reputation_snapshot", snapshot }));
+        } catch (err) {
+          ws.send(JSON.stringify({ type: "error", message: (err as Error).message }));
+        }
+      }
+
+      // Team Vault handlers
+      if (msg.type === "team_list") {
+        const teams = agent.listTeams();
+        ws.send(JSON.stringify({ type: "team_list", teams }));
+      }
+
+      if (msg.type === "team_create") {
+        try {
+          const { name, description, members, threshold } = msg;
+          if (!name) { ws.send(JSON.stringify({ type: "error", message: "name required" })); return; }
+          const team = await agent.createTeam({ name, description, members, threshold });
+          ws.send(JSON.stringify({ type: "team_created", team }));
+        } catch (err) {
+          ws.send(JSON.stringify({ type: "error", message: (err as Error).message }));
+        }
+      }
+
+      if (msg.type === "team_invite") {
+        try {
+          const { teamId, publicKey, x25519PublicKey, role, displayName } = msg;
+          const team = await agent.inviteTeamMember(teamId, { publicKey, x25519PublicKey, role: role ?? "member", displayName });
+          ws.send(JSON.stringify({ type: "team_updated", team }));
+        } catch (err) {
+          ws.send(JSON.stringify({ type: "error", message: (err as Error).message }));
+        }
+      }
+
+      if (msg.type === "team_store_secret") {
+        try {
+          const { teamId, label, description, data } = msg;
+          if (!teamId || !label || data === undefined) {
+            ws.send(JSON.stringify({ type: "error", message: "teamId, label, data required" }));
+            return;
+          }
+          const secret = await agent.storeTeamSecret(teamId, { label, description, data });
+          ws.send(JSON.stringify({ type: "team_secret_stored", secret }));
+        } catch (err) {
+          ws.send(JSON.stringify({ type: "error", message: (err as Error).message }));
+        }
+      }
+
+      if (msg.type === "team_retrieve_secret") {
+        try {
+          const { teamId, secretId } = msg;
+          const result = agent.retrieveTeamSecret(teamId, secretId);
+          ws.send(JSON.stringify({ type: "team_secret_retrieved", ...result }));
         } catch (err) {
           ws.send(JSON.stringify({ type: "error", message: (err as Error).message }));
         }

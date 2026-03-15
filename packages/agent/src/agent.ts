@@ -37,7 +37,10 @@ import {
   KageReputationPlugin,
   createKageReputationPlugin,
 } from "./plugins/kage-reputation.js";
-import { DelegationTask, DelegationEngine, AgentMessage, MessageContent, GroupMember, GroupVaultGroup, GroupVaultStore, ShieldedPayment, ScanResult, ReasoningTrace, KageDIDDocument, KageCredential, DIDResolution, AgentReputation, ReputationEvent, ReputationSnapshot, TaskOutcome } from "@kage/sdk";
+import {
+  KageTeamVaultPlugin,
+} from "./plugins/kage-team-vault.js";
+import { DelegationTask, DelegationEngine, AgentMessage, MessageContent, GroupMember, GroupVaultGroup, GroupVaultStore, ShieldedPayment, ScanResult, ReasoningTrace, KageDIDDocument, KageCredential, DIDResolution, AgentReputation, ReputationEvent, ReputationSnapshot, TaskOutcome, Team, TeamMember, TeamSecret, TeamRole } from "@kage/sdk";
 import {
   KageCharacter,
   AgentCharacter,
@@ -128,6 +131,7 @@ export class KageAgent {
   private reasoningPlugin: KageReasoningPlugin;
   private didPlugin: KageDIDPlugin;
   private reputationPlugin: KageReputationPlugin;
+  private teamVaultPlugin: KageTeamVaultPlugin;
   private anthropic: Anthropic;
   private conversationHistory: Message[] = [];
   private initialized = false;
@@ -169,6 +173,7 @@ export class KageAgent {
       rpcUrl: config.rpcUrl,
       network: config.umbraNetwork,
     });
+    this.teamVaultPlugin = new KageTeamVaultPlugin({ rpcUrl: config.rpcUrl });
     this.anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
   }
 
@@ -187,6 +192,7 @@ export class KageAgent {
     await this.reasoningPlugin.initialize(this.keypair);
     await this.didPlugin.initialize(this.keypair);
     await this.reputationPlugin.initialize(this.keypair);
+    await this.teamVaultPlugin.initialize(this.keypair);
 
     // Start a reasoning session for this agent instance
     this.reasoningSessionId = this.reasoningPlugin.startSession();
@@ -718,6 +724,57 @@ export class KageAgent {
 
   getLeaderboard(): AgentReputation[] {
     return this.reputationPlugin.getLeaderboard();
+  }
+
+  // ─── Team Vault ─────────────────────────────────────────────────────────────
+
+  get teamVaultX25519PublicKey(): string {
+    return this.teamVaultPlugin.x25519PublicKey;
+  }
+
+  async createTeam(params: {
+    name: string;
+    description?: string;
+    members?: Omit<TeamMember, "addedAt" | "addedBy">[];
+    threshold?: number;
+  }): Promise<Team> {
+    return this.teamVaultPlugin.createTeam(params);
+  }
+
+  async inviteTeamMember(teamId: string, member: Omit<TeamMember, "addedAt" | "addedBy">): Promise<Team> {
+    return this.teamVaultPlugin.inviteMember(teamId, member);
+  }
+
+  async removeTeamMember(teamId: string, memberPubkey: string): Promise<Team> {
+    return this.teamVaultPlugin.removeMember(teamId, memberPubkey);
+  }
+
+  async changeTeamRole(teamId: string, memberPubkey: string, newRole: TeamRole): Promise<Team> {
+    return this.teamVaultPlugin.changeRole(teamId, memberPubkey, newRole);
+  }
+
+  async storeTeamSecret(teamId: string, params: { label: string; description?: string; data: unknown }): Promise<TeamSecret> {
+    return this.teamVaultPlugin.storeSecret(teamId, params);
+  }
+
+  retrieveTeamSecret(teamId: string, secretId: string): { label: string; data: unknown } {
+    return this.teamVaultPlugin.retrieveSecret(teamId, secretId);
+  }
+
+  async deleteTeamSecret(teamId: string, secretId: string): Promise<void> {
+    return this.teamVaultPlugin.deleteSecret(teamId, secretId);
+  }
+
+  listTeams(): Team[] {
+    return this.teamVaultPlugin.listTeams();
+  }
+
+  getTeam(teamId: string): Team | undefined {
+    return this.teamVaultPlugin.getTeam(teamId);
+  }
+
+  getMyTeamRole(teamId: string): TeamRole | null {
+    return this.teamVaultPlugin.getMyRole(teamId);
   }
 }
 
