@@ -1,0 +1,29 @@
+[package]
+version = "0.1.0"
+name = "kage-zk-script"
+edition = "2021"
+default-run = "prove-reputation"
+
+[[bin]]
+name = "prove-reputation"
+path = "src/bin/prove_reputation.rs"
+
+[[bin]]
+name = "prove-memory"
+path = "src/bin/prove_memory.rs"
+
+[[bin]]
+name = "prove-task"
+path = "src/bin/prove_task.rs"
+
+[dependencies]
+sp1-sdk = { version = "6.0.2" }
+serde_json = { workspace = true }
+serde = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+kage-zk-lib = { path = "../lib" }
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[build-dependencies]
+sp1-build = { version = "6.0.1" }

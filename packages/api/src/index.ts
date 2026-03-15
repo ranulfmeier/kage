@@ -11,6 +11,7 @@ import {
   createOllamaProvider,
   type LLMProvider,
 } from "@kage/agent";
+import { ZKCommitmentEngine } from "@kage/sdk";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -93,10 +94,17 @@ const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
 app.get("/health", (_req, res) => {
+  const engine = getZKEngine();
+  const commitments = engine.listCommitments();
   res.json({
     status: "ok",
     agent: "kage",
     llm: { provider: llmProvider.name, model: llmProvider.model },
+    zk: {
+      engine: "sp1-v6.0.2",
+      mode: "hash-commitment + offline-proof",
+      commitments: commitments.length,
+    },
   });
 });
 
@@ -468,6 +476,117 @@ app.post("/did/resolve", async (req, res) => {
     if (!did) return res.status(400).json({ error: "did is required" });
     const resolution = await agent.resolveDID(did);
     res.json({ resolution });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── ZK Commitment Endpoints ───────────────────────────────────────────────────
+
+let zkEngine: ZKCommitmentEngine | null = null;
+
+function getZKEngine(): ZKCommitmentEngine {
+  if (!zkEngine) {
+    const connection = new Connection(SOLANA_RPC_URL, "confirmed");
+    zkEngine = new ZKCommitmentEngine(connection, sharedKeypair);
+  }
+  return zkEngine;
+}
+
+app.post("/zk/commit/reputation", async (req, res) => {
+  try {
+    const { agentDID, events, claimedScore } = req.body;
+    if (!agentDID || !events || claimedScore === undefined) {
+      res.status(400).json({ error: "agentDID, events, and claimedScore are required" });
+      return;
+    }
+    const engine = getZKEngine();
+    const commitment = await engine.commitReputation({ agentDID, events, claimedScore });
+    console.log(`[Kage:ZK] Reputation commitment ${commitment.id} → tx: ${commitment.txSignature ?? "pending"}`);
+    res.json({ commitment });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/zk/commit/memory", async (req, res) => {
+  try {
+    const { agentDID, ciphertextHash, storedAt, memoryType } = req.body;
+    if (!agentDID || !ciphertextHash || !storedAt || !memoryType) {
+      res.status(400).json({ error: "agentDID, ciphertextHash, storedAt, and memoryType are required" });
+      return;
+    }
+    const engine = getZKEngine();
+    const commitment = await engine.commitMemory({ agentDID, ciphertextHash, storedAt, memoryType });
+    console.log(`[Kage:ZK] Memory commitment ${commitment.id} → tx: ${commitment.txSignature ?? "pending"}`);
+    res.json({ commitment });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/zk/commit/task", async (req, res) => {
+  try {
+    const { taskId, instructionHash, resultHash, outcome, executorDID, completedAt } = req.body;
+    if (!taskId || !instructionHash || !resultHash || !outcome || !executorDID) {
+      res.status(400).json({ error: "taskId, instructionHash, resultHash, outcome, and executorDID are required" });
+      return;
+    }
+    const engine = getZKEngine();
+    const commitment = await engine.commitTask({
+      taskId, instructionHash, resultHash, outcome, executorDID,
+      completedAt: completedAt ?? Date.now(),
+    });
+    console.log(`[Kage:ZK] Task commitment ${commitment.id} → tx: ${commitment.txSignature ?? "pending"}`);
+    res.json({ commitment });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/zk/commitments", async (req, res) => {
+  try {
+    const engine = getZKEngine();
+    const filters: Record<string, string> = {};
+    if (req.query.agentDID) filters.agentDID = req.query.agentDID as string;
+    if (req.query.proofType) filters.proofType = req.query.proofType as string;
+    if (req.query.status) filters.status = req.query.status as string;
+    const commitments = engine.listCommitments(filters as any);
+    res.json({ count: commitments.length, commitments });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/zk/commitment/:id", async (req, res) => {
+  try {
+    const engine = getZKEngine();
+    const commitment = engine.getCommitment(req.params.id);
+    if (!commitment) { res.status(404).json({ error: "Commitment not found" }); return; }
+    res.json({ commitment });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/zk/verify/:id", async (req, res) => {
+  try {
+    const engine = getZKEngine();
+    const result = engine.verifyCommitment(req.params.id);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/zk/mark-proved/:id", async (req, res) => {
+  try {
+    const { vkey } = req.body;
+    if (!vkey) { res.status(400).json({ error: "vkey is required" }); return; }
+    const engine = getZKEngine();
+    const success = engine.markProved(req.params.id, vkey);
+    if (!success) { res.status(404).json({ error: "Commitment not found" }); return; }
+    res.json({ success: true, commitment: engine.getCommitment(req.params.id) });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

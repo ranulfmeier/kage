@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { Keypair } from "@solana/web3.js";
-import { createKageAgent } from "@kage/agent";
+import { createKageAgent, createClaudeProvider } from "@kage/agent";
 import chalk from "chalk";
 
 export const CONFIG_DIR = join(homedir(), ".kage");
@@ -70,14 +70,14 @@ export async function loadAgent(ora?: { text: string; start(): void; fail(msg: s
   }
 
   const keypair = loadOrCreateKeypair();
+  const llmProvider = createClaudeProvider(apiKey, { fastModel: config.model });
   const agent = createKageAgent(
     {
       rpcUrl: config.rpcUrl,
       programId: config.programId,
       ipfsGateway: "https://ipfs.io",
       umbraNetwork: config.network,
-      anthropicApiKey: apiKey,
-      model: config.model,
+      llmProvider,
       storageBackend: config.storageBackend,
     },
     keypair
