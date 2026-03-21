@@ -35,7 +35,8 @@ async fn main() {
     stdin.write(&commitment);
     stdin.write(&claimed_hash);
 
-    println!("[Kage:ZK] Generating memory integrity proof…");
+    println!("[Kage:ZK] Generating memory integrity proof… (mode: LOCAL CPU)");
+
     let client = ProverClient::builder().cpu().build().await;
     let pk = client.setup(MEMORY_ELF).await.unwrap();
     let vk = pk.verifying_key();

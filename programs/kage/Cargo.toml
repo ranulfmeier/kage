@@ -19,3 +19,5 @@ idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 [dependencies]
 anchor-lang = "0.32.0"
 anchor-spl = "0.32.0"
+sp1-solana = "0.1"
+solana-program = "2.3"

@@ -22,7 +22,9 @@ async fn main() {
     stdin.write(&events);
     stdin.write(&claimed_score);
 
-    println!("[Kage:ZK] Generating reputation proof…");
+    println!("[Kage:ZK] Generating reputation proof… (mode: LOCAL CPU)");
+    println!("[Kage:ZK] For network mode, use the prover-service instead");
+
     let client = ProverClient::builder().cpu().build().await;
     let pk = client.setup(REPUTATION_ELF).await.unwrap();
     let vk = pk.verifying_key();

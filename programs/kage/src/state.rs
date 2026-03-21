@@ -98,9 +98,46 @@ impl From<u8> for AccessPermissions {
     }
 }
 
+/// ZK proof type enumeration
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
+pub enum ZkProofType {
+    Reputation,
+    Memory,
+    Task,
+}
+
+impl From<u8> for ZkProofType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => ZkProofType::Reputation,
+            1 => ZkProofType::Memory,
+            _ => ZkProofType::Task,
+        }
+    }
+}
+
+/// On-chain ZK verification record — stored after successful SP1 proof verification
+#[account]
+#[derive(InitSpace)]
+pub struct ZkVerification {
+    /// Agent/owner who submitted the proof
+    pub authority: Pubkey,
+    /// Type of proof verified
+    pub proof_type: ZkProofType,
+    /// SP1 program verification key hash (vk.bytes32())
+    pub vkey_hash: [u8; 32],
+    /// SHA-256 hash of the public outputs committed by the SP1 circuit
+    pub public_outputs_hash: [u8; 32],
+    /// Verification timestamp
+    pub verified_at: i64,
+    /// PDA bump
+    pub bump: u8,
+}
+
 /// PDA seeds
 pub mod seeds {
     pub const VAULT_SEED: &[u8] = b"vault";
     pub const MEMORY_SEED: &[u8] = b"memory";
     pub const ACCESS_SEED: &[u8] = b"access";
+    pub const ZK_VERIFICATION_SEED: &[u8] = b"zk_verify";
 }

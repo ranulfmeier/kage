@@ -21,7 +21,8 @@ async fn main() {
     let mut stdin = SP1Stdin::new();
     stdin.write(&claim);
 
-    println!("[Kage:ZK] Generating task completion proof…");
+    println!("[Kage:ZK] Generating task completion proof… (mode: LOCAL CPU)");
+
     let client = ProverClient::builder().cpu().build().await;
     let pk = client.setup(TASK_ELF).await.unwrap();
     let vk = pk.verifying_key();

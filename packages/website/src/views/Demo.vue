@@ -244,13 +244,44 @@ interface ZKCommitmentUI {
   status: string;
   txSignature?: string;
   vkey?: string;
+  proofRequestId?: string;
+  explorerUrl?: string;
   createdAt: number;
+  provedAt?: number;
+}
+
+interface ProofRecordUI {
+  proof_id: string;
+  proof_type: string;
+  status: string;
+  mode: string;
+  vkey: string | null;
+  public_outputs: Record<string, unknown> | null;
+  groth16_proof: string | null;
+  sp1_public_inputs: string | null;
+  error: string | null;
+  explorer_url: string | null;
+  created_at: number;
+  completed_at: number | null;
+}
+
+interface OnChainVerificationUI {
+  txSignature: string;
+  verificationPda: string;
+  proofType: string;
+  vkeyHash: string;
 }
 
 const zkCommitments = ref<ZKCommitmentUI[]>([]);
 const zkCommitType = ref<'reputation' | 'memory' | 'task'>('reputation');
 const isCreatingCommitment = ref(false);
 const zkVerifyResult = ref<{ valid: boolean; reason?: string } | null>(null);
+const isProvingCommitment = ref<string | null>(null);
+const isVerifyingOnChain = ref<string | null>(null);
+const onChainVerifications = ref<Record<string, OnChainVerificationUI>>({});
+const proofStatusMap = ref<Record<string, ProofRecordUI>>({});
+const proverServiceAvailable = ref(false);
+const proverServiceMode = ref('');
 
 const zkRepEvents = ref([
   { eventType: 'task_complete', delta: 25, timestamp: Date.now() },
@@ -328,6 +359,81 @@ async function verifyZKCommitment(id: string) {
     zkVerifyResult.value = await res.json();
   } catch (err) {
     console.error('ZK verify failed:', err);
+  }
+}
+
+async function checkProverHealth() {
+  try {
+    const res = await fetch(`${API_URL}/zk/prover/health`);
+    const data = await res.json();
+    proverServiceAvailable.value = data.available ?? false;
+    proverServiceMode.value = data.mode ?? '';
+  } catch {
+    proverServiceAvailable.value = false;
+  }
+}
+
+async function requestProof(commitmentId: string) {
+  isProvingCommitment.value = commitmentId;
+  try {
+    const res = await fetch(`${API_URL}/zk/prove/${commitmentId}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.proof) {
+      proofStatusMap.value[commitmentId] = data.proof;
+    }
+    if (data.commitment) {
+      const idx = zkCommitments.value.findIndex(c => c.id === commitmentId);
+      if (idx >= 0) zkCommitments.value[idx] = data.commitment;
+    }
+    pollProofStatus(commitmentId);
+  } catch (err) {
+    console.error('Proof request failed:', err);
+    isProvingCommitment.value = null;
+  }
+}
+
+async function pollProofStatus(commitmentId: string) {
+  const maxAttempts = 60;
+  let interval = 2000;
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, interval));
+    try {
+      const res = await fetch(`${API_URL}/zk/prove/${commitmentId}/status`);
+      const data = await res.json();
+      if (data.proof) {
+        proofStatusMap.value[commitmentId] = data.proof;
+      }
+      if (data.commitment) {
+        const idx = zkCommitments.value.findIndex(c => c.id === commitmentId);
+        if (idx >= 0) zkCommitments.value[idx] = data.commitment;
+      }
+      if (data.proof?.status === 'completed' || data.proof?.status === 'failed') {
+        break;
+      }
+    } catch {
+      break;
+    }
+    interval = Math.min(interval * 1.3, 10000);
+  }
+  isProvingCommitment.value = null;
+}
+
+async function verifyOnChain(commitmentId: string) {
+  isVerifyingOnChain.value = commitmentId;
+  try {
+    const res = await fetch(`${API_URL}/zk/verify-onchain/${commitmentId}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success && data.verification) {
+      onChainVerifications.value[commitmentId] = data.verification;
+      const idx = zkCommitments.value.findIndex(c => c.id === commitmentId);
+      if (idx >= 0 && data.commitment) zkCommitments.value[idx] = data.commitment;
+    } else {
+      console.error('On-chain verification failed:', data.error);
+    }
+  } catch (err) {
+    console.error('On-chain verification error:', err);
+  } finally {
+    isVerifyingOnChain.value = null;
   }
 }
 
@@ -605,8 +711,8 @@ const tabInfo: Record<string, { name: string; description: string; badges: strin
   },
   zk: {
     name: 'ZK Proofs',
-    description: 'Create and verify zero-knowledge commitments for reputation, memory integrity, and task completion. Commitments are anchored on Solana and proved by an SP1 zkVM worker.',
-    badges: ['SP1 zkVM', 'Solana Memo', 'Zero-knowledge'],
+    description: 'Create and verify zero-knowledge commitments for reputation, memory integrity, and task completion. Groth16 proofs are generated via Succinct Network and verified on-chain by the Kage Solana program.',
+    badges: ['SP1 zkVM', 'Groth16', 'On-chain verifier', 'Zero-knowledge'],
   },
 };
 
@@ -1135,7 +1241,7 @@ onUnmounted(() => {
 
           <div>
             <p class="text-[9px] font-medium tracking-[0.18em] uppercase text-stone-400 px-2 mb-1">Verification</p>
-            <button @click="activeTab = 'zk'; fetchZKCommitments()"
+            <button @click="activeTab = 'zk'; fetchZKCommitments(); checkProverHealth()"
               class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-sm transition-colors text-left"
               :class="activeTab === 'zk' ? 'bg-stone-800 text-white' : 'text-stone-600 hover:bg-stone-200'">
               <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2601,6 +2707,20 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Prover Service Status -->
+        <div class="border border-stone-200 bg-white/70 p-4 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full" :class="proverServiceAvailable ? 'bg-emerald-400' : 'bg-stone-300'"></span>
+            <p class="text-xs text-stone-500">
+              Prover Service: <span class="font-medium" :class="proverServiceAvailable ? 'text-emerald-600' : 'text-stone-400'">{{ proverServiceAvailable ? 'Online' : 'Offline' }}</span>
+            </p>
+          </div>
+          <div v-if="proverServiceAvailable" class="flex items-center gap-2">
+            <span class="text-[10px] px-2 py-0.5 rounded-sm bg-stone-100 text-stone-600 uppercase tracking-wider">{{ proverServiceMode }}</span>
+          </div>
+          <button @click="checkProverHealth" class="text-[10px] text-stone-400 hover:text-stone-600 underline">Check</button>
+        </div>
+
         <!-- Commitments list -->
         <div class="border border-stone-200 bg-white/70 p-5 space-y-3">
           <div class="flex items-center justify-between">
@@ -2624,12 +2744,60 @@ onUnmounted(() => {
             </div>
             <p class="text-[10px] font-mono text-stone-500 truncate">ID: {{ c.id }}</p>
             <p class="text-[10px] font-mono text-stone-400 truncate">Output hash: {{ c.outputHash.slice(0, 24) }}...</p>
+            <p v-if="c.vkey" class="text-[10px] font-mono text-emerald-600 truncate">vkey: {{ c.vkey.slice(0, 24) }}...</p>
             <p class="text-[10px] text-stone-400">{{ new Date(c.createdAt).toLocaleString() }}</p>
-            <div class="flex gap-2 pt-1">
+
+            <!-- Proof status indicator -->
+            <div v-if="proofStatusMap[c.id]" class="mt-1 p-2 bg-stone-50 rounded-sm space-y-1">
+              <div class="flex items-center gap-2">
+                <span v-if="proofStatusMap[c.id].status === 'proving' || proofStatusMap[c.id].status === 'queued'"
+                  class="inline-block w-3 h-3 border-2 border-stone-400 border-t-transparent rounded-full animate-spin"></span>
+                <span class="text-[10px] font-medium uppercase tracking-wider"
+                  :class="{
+                    'text-amber-600': proofStatusMap[c.id].status === 'queued',
+                    'text-blue-600': proofStatusMap[c.id].status === 'proving',
+                    'text-emerald-600': proofStatusMap[c.id].status === 'completed',
+                    'text-red-600': proofStatusMap[c.id].status === 'failed',
+                  }">{{ proofStatusMap[c.id].status }}</span>
+                <span class="text-[10px] text-stone-400">({{ proofStatusMap[c.id].mode }})</span>
+              </div>
+              <p v-if="proofStatusMap[c.id].error" class="text-[10px] text-red-500">{{ proofStatusMap[c.id].error }}</p>
+              <a v-if="proofStatusMap[c.id].explorer_url" :href="proofStatusMap[c.id].explorer_url!" target="_blank"
+                class="text-[10px] text-blue-500 underline">Succinct Explorer</a>
+            </div>
+
+            <!-- On-chain verification result -->
+            <div v-if="onChainVerifications[c.id]" class="mt-1.5 p-2.5 bg-emerald-50 border border-emerald-200 rounded-sm space-y-1">
+              <div class="flex items-center gap-2">
+                <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                </svg>
+                <span class="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">Verified On-Chain</span>
+              </div>
+              <p class="text-[10px] font-mono text-emerald-600 truncate">PDA: {{ onChainVerifications[c.id].verificationPda }}</p>
+              <a :href="`https://solscan.io/tx/${onChainVerifications[c.id].txSignature}?cluster=devnet`"
+                target="_blank" class="text-[10px] text-emerald-500 underline">View tx on Solscan</a>
+            </div>
+
+            <div class="flex gap-2 pt-1 flex-wrap">
               <button @click="verifyZKCommitment(c.id)"
-                class="text-[10px] text-stone-500 underline hover:text-stone-700">Verify</button>
+                class="text-[10px] text-stone-500 underline hover:text-stone-700">Verify Hash</button>
+              <button v-if="proverServiceAvailable && c.status !== 'proved'"
+                @click="requestProof(c.id)"
+                :disabled="isProvingCommitment === c.id"
+                class="text-[10px] px-2 py-0.5 bg-stone-800 text-white rounded-sm hover:bg-stone-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                {{ isProvingCommitment === c.id ? 'Generating...' : 'Generate SP1 Proof' }}
+              </button>
+              <button v-if="c.status === 'proved' && proofStatusMap[c.id]?.groth16_proof && !onChainVerifications[c.id]"
+                @click="verifyOnChain(c.id)"
+                :disabled="isVerifyingOnChain === c.id"
+                class="text-[10px] px-2 py-0.5 bg-violet-700 text-white rounded-sm hover:bg-violet-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                {{ isVerifyingOnChain === c.id ? 'Verifying...' : 'Verify On-Chain' }}
+              </button>
               <a v-if="c.txSignature" :href="`https://solscan.io/tx/${c.txSignature}?cluster=devnet`" target="_blank"
                 class="text-[10px] text-stone-400 underline">Solscan</a>
+              <a v-if="c.explorerUrl" :href="c.explorerUrl" target="_blank"
+                class="text-[10px] text-blue-400 underline">Succinct Explorer</a>
             </div>
           </div>
         </div>
@@ -2640,9 +2808,10 @@ onUnmounted(() => {
           <ol class="space-y-2 text-xs text-stone-600 list-none pl-0">
             <li class="flex gap-2"><span class="text-stone-300 select-none">1.</span>Agent creates a hash commitment from private inputs (reputation events, memory data, or task results)</li>
             <li class="flex gap-2"><span class="text-stone-300 select-none">2.</span>Commitment is anchored on Solana via Memo program (tamper-proof timestamp)</li>
-            <li class="flex gap-2"><span class="text-stone-300 select-none">3.</span>SP1 zkVM worker generates a real ZK proof offline (reputation score, memory integrity, task completion)</li>
-            <li class="flex gap-2"><span class="text-stone-300 select-none">4.</span>Proof can be verified by anyone using the verification key — no private data revealed</li>
-            <li class="flex gap-2"><span class="text-stone-300 select-none">5.</span>Verification key is bound to the Solana commitment for on-chain auditability</li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">3.</span>Click "Generate SP1 Proof" to submit to Succinct Network for Groth16 proof generation</li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">4.</span>The prover service generates a real ZK proof asynchronously (30s-2min)</li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">5.</span>Click "Verify On-Chain" to submit the Groth16 proof to the Kage Solana program</li>
+            <li class="flex gap-2"><span class="text-stone-300 select-none">6.</span>The on-chain verifier validates the proof using BN254 precompiles and stores the result in a PDA</li>
           </ol>
         </div>
 

@@ -682,6 +682,59 @@ const apiSections: ApiSection[] = [
   "provedAt": "2025-01-15T11:00:00Z"
 }`,
       },
+      {
+        id: 'get-zk-prover-health',
+        method: 'GET',
+        path: '/zk/prover/health',
+        description: 'Check the health and availability of the hosted prover service. Reports current mode (network/cpu) and proof statistics.',
+        body: {},
+        response: `{
+  "available": true,
+  "service": "kage-prover-service",
+  "version": "0.1.0",
+  "mode": "network",
+  "stats": {
+    "total_proofs": 12,
+    "completed": 10,
+    "proving": 2
+  }
+}`,
+      },
+      {
+        id: 'post-zk-prove',
+        method: 'POST',
+        path: '/zk/prove/:id',
+        description: 'Submit a commitment for real SP1 ZK proof generation via the hosted prover service (Succinct Network or local CPU fallback). Returns immediately with a proof request ID for async tracking.',
+        body: {},
+        response: `{
+  "commitment": { "id": "cmt_001", "status": "pending", "proofRequestId": "uuid-..." },
+  "proof": {
+    "proof_id": "uuid-...",
+    "status": "queued",
+    "mode": "network",
+    "vkey": null,
+    "public_outputs": null
+  }
+}`,
+      },
+      {
+        id: 'get-zk-prove-status',
+        method: 'GET',
+        path: '/zk/prove/:id/status',
+        description: 'Poll the proof generation status for a commitment. Returns the latest proof record with status (queued, proving, completed, failed), verification key, and public outputs when complete.',
+        body: {},
+        response: `{
+  "commitment": { "id": "cmt_001", "status": "proved", "vkey": "0x...", "provedAt": 1700000000 },
+  "proof": {
+    "proof_id": "uuid-...",
+    "status": "completed",
+    "mode": "network",
+    "vkey": "0x...",
+    "public_outputs": { "agent_did": "did:sol:...", "final_score": 135 },
+    "explorer_url": "https://explorer.succinct.xyz/request/uuid-..."
+  }
+}`,
+      },
     ],
   },
 ];

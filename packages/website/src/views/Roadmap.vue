@@ -80,8 +80,8 @@ const phases = [
     name: 'Next',
     status: 'current',
     items: [
-      { text: 'Hosted prover service (Succinct Network)', done: false },
-      { text: 'On-chain ZK verifier (Solana program)', done: false },
+      { text: 'Hosted prover service (Succinct Network)', done: true },
+      { text: 'On-chain ZK verifier (Solana program)', done: true },
       { text: 'Mainnet deployment', done: false },
     ],
   },

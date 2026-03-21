@@ -11,7 +11,7 @@ import {
   createOllamaProvider,
   type LLMProvider,
 } from "@kage/agent";
-import { ZKCommitmentEngine } from "@kage/sdk";
+import { ZKCommitmentEngine, ProverClient } from "@kage/sdk";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -484,11 +484,18 @@ app.post("/did/resolve", async (req, res) => {
 // ── ZK Commitment Endpoints ───────────────────────────────────────────────────
 
 let zkEngine: ZKCommitmentEngine | null = null;
+const PROVER_SERVICE_URL = process.env.PROVER_SERVICE_URL || "http://localhost:3080";
+const PROVER_API_KEY = process.env.PROVER_API_KEY || undefined;
 
 function getZKEngine(): ZKCommitmentEngine {
   if (!zkEngine) {
     const connection = new Connection(SOLANA_RPC_URL, "confirmed");
-    zkEngine = new ZKCommitmentEngine(connection, sharedKeypair);
+    zkEngine = new ZKCommitmentEngine(
+      connection,
+      sharedKeypair,
+      PROVER_SERVICE_URL,
+      PROVER_API_KEY
+    );
   }
   return zkEngine;
 }
@@ -587,6 +594,81 @@ app.post("/zk/mark-proved/:id", async (req, res) => {
     const success = engine.markProved(req.params.id, vkey);
     if (!success) { res.status(404).json({ error: "Commitment not found" }); return; }
     res.json({ success: true, commitment: engine.getCommitment(req.params.id) });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── Prover Service Endpoints ────────────────────────────────────────────────
+
+app.get("/zk/prover/health", async (_req, res) => {
+  try {
+    const engine = getZKEngine();
+    const available = await engine.isProverAvailable();
+    if (!available) {
+      res.json({ available: false, message: "Prover service not reachable" });
+      return;
+    }
+    const prover = new ProverClient(PROVER_SERVICE_URL, PROVER_API_KEY);
+    const health = await prover.health();
+    res.json({ available: true, ...health });
+  } catch (err) {
+    res.json({ available: false, error: String(err) });
+  }
+});
+
+app.post("/zk/prove/:id", async (req, res) => {
+  try {
+    const engine = getZKEngine();
+    const commitment = engine.getCommitment(req.params.id);
+    if (!commitment) {
+      res.status(404).json({ error: "Commitment not found" });
+      return;
+    }
+    const record = await engine.requestProof(req.params.id);
+    console.log(`[Kage:ZK] Proof requested for ${req.params.id} → prover id: ${record.proof_id}`);
+    res.json({ commitment: engine.getCommitment(req.params.id), proof: record });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/zk/prove/:id/status", async (req, res) => {
+  try {
+    const engine = getZKEngine();
+    const commitment = engine.getCommitment(req.params.id);
+    if (!commitment) {
+      res.status(404).json({ error: "Commitment not found" });
+      return;
+    }
+    if (!commitment.proofRequestId) {
+      res.json({ status: "no_proof_requested", commitment });
+      return;
+    }
+    const record = await engine.checkProofStatus(req.params.id);
+    res.json({ commitment: engine.getCommitment(req.params.id), proof: record });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/zk/verify-onchain/:id", async (req, res) => {
+  try {
+    const engine = getZKEngine();
+    const commitment = engine.getCommitment(req.params.id);
+    if (!commitment) {
+      res.status(404).json({ error: "Commitment not found" });
+      return;
+    }
+    const result = await engine.verifyOnChain(req.params.id);
+    console.log(
+      `[Kage:ZK] On-chain verification for ${req.params.id} → tx: ${result.txSignature}`
+    );
+    res.json({
+      success: true,
+      commitment: engine.getCommitment(req.params.id),
+      verification: result,
+    });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

@@ -31,4 +31,13 @@ pub enum KageError {
 
     #[msg("Memory index overflow")]
     MemoryIndexOverflow,
+
+    #[msg("ZK proof verification failed")]
+    ZkProofVerificationFailed,
+
+    #[msg("Invalid proof type")]
+    InvalidProofType,
+
+    #[msg("Proof data too large")]
+    ProofDataTooLarge,
 }

@@ -41,4 +41,16 @@ pub mod kage {
     pub fn revoke_access(ctx: Context<RevokeAccess>, grantee: Pubkey) -> Result<()> {
         instructions::revoke_access::handler(ctx, grantee)
     }
+
+    /// Verify an SP1 Groth16 ZK proof on-chain.
+    /// Stores the verification result in a PDA for trustless querying.
+    pub fn verify_sp1_proof(
+        ctx: Context<VerifyProof>,
+        proof_type: u8,
+        vkey_hash: [u8; 32],
+        proof_bytes: Vec<u8>,
+        public_inputs: Vec<u8>,
+    ) -> Result<()> {
+        instructions::verify_proof::handler(ctx, proof_type, vkey_hash, proof_bytes, public_inputs)
+    }
 }

@@ -13,3 +13,4 @@ export * from "./reputation.js";
 export * from "./arweave.js";
 export * from "./team-vault.js";
 export * from "./zk.js";
+export * from "./prover-client.js";
