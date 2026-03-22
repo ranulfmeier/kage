@@ -19,7 +19,7 @@ const MEMO_PROGRAM_ID = new PublicKey(
 );
 
 const KAGE_PROGRAM_ID = new PublicKey(
-  "PRDZsFBacoRGLW5bBumh4Wi42hv8N72akYcWhDgvt9s"
+  "ASK5m43oRE67ipfwuBbagVaiMQpFKYRTZNsvZXUfBtRp"
 );
 
 const ZK_VERIFICATION_SEED = Buffer.from("zk_verify");

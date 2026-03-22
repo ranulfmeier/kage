@@ -784,7 +784,7 @@ export async function createKageAgentFromEnv(): Promise<KageAgent> {
 
   const config: KageAgentConfig = {
     rpcUrl: process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
-    programId: process.env.KAGE_PROGRAM_ID || "KAGExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    programId: process.env.KAGE_PROGRAM_ID || "ASK5m43oRE67ipfwuBbagVaiMQpFKYRTZNsvZXUfBtRp",
     ipfsGateway: process.env.IPFS_GATEWAY || "https://ipfs.io",
     umbraNetwork: (process.env.UMBRA_NETWORK as "devnet" | "mainnet") || "devnet",
     llmProvider,

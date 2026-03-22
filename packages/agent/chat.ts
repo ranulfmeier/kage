@@ -57,7 +57,7 @@ async function main() {
   const agent = createKageAgent(
     {
       rpcUrl: "https://api.devnet.solana.com",
-      programId: "PRDZsFBacoRGLW5bBumh4Wi42hv8N72akYcWhDgvt9s",
+      programId: "ASK5m43oRE67ipfwuBbagVaiMQpFKYRTZNsvZXUfBtRp",
       ipfsGateway: "https://ipfs.io",
       umbraNetwork: "devnet",
       anthropicApiKey: apiKey,

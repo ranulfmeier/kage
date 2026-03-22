@@ -1,18 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
-import { RouterLink } from 'vue-router';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { RouterLink, useRoute, useRouter } from 'vue-router';
 
-const activeSection = ref('overview');
+const route = useRoute();
+const router = useRouter();
 const mobileNavOpen = ref(false);
-const expandedEndpoints = ref<Set<string>>(new Set());
-
-function selectSection(sectionId: string) {
-  activeSection.value = sectionId;
-  mobileNavOpen.value = false;
-  nextTick(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  });
-}
 
 function toggleEndpoint(id: string) {
   if (expandedEndpoints.value.has(id)) {
@@ -735,9 +727,129 @@ const apiSections: ApiSection[] = [
   }
 }`,
       },
+      {
+        id: 'post-zk-verify-onchain',
+        method: 'POST',
+        path: '/zk/verify-onchain/:id',
+        description:
+          'Submit a completed Groth16 proof to the Kage Solana program for on-chain verification. Requires proof from network-mode prover (groth16_proof + sp1_public_inputs). Creates a ZkVerification PDA.',
+        body: {},
+        response: `{
+  "success": true,
+  "commitment": { "id": "cmt_001", "status": "verified" },
+  "verification": {
+    "txSignature": "...",
+    "verificationPda": "...",
+    "proofType": "reputation",
+    "vkeyHash": "0x..."
+  }
+}`,
+      },
     ],
   },
 ];
+
+function getValidSectionIds(): Set<string> {
+  return new Set([
+    ...sections.map((s) => s.id),
+    ...apiSections.map((s) => s.id),
+    'websocket',
+  ]);
+}
+
+/** Initial section from the real URL (hash / query) — must run after apiSections exists */
+function sectionFromBrowser(): string {
+  const ids = getValidSectionIds();
+  if (typeof window === 'undefined') return 'overview';
+
+  const params = new URLSearchParams(window.location.search);
+  const q = params.get('section');
+  if (q && ids.has(q)) return q;
+
+  const raw = window.location.hash.replace(/^#/, '').trim();
+  if (raw && ids.has(raw)) return raw;
+
+  return 'overview';
+}
+
+const activeSection = ref(sectionFromBrowser());
+
+/** All endpoint cards expanded by default so docs are not "empty" until clicked */
+const expandedEndpoints = ref<Set<string>>(
+  new Set(
+    apiSections.flatMap((s) => s.endpoints.map((e) => e.id))
+  )
+);
+
+const activeApiSection = computed(() =>
+  apiSections.find((s) => s.id === activeSection.value)
+);
+
+function selectSection(sectionId: string) {
+  activeSection.value = sectionId;
+  mobileNavOpen.value = false;
+  if (sectionId === 'overview') {
+    router.replace({ path: '/docs' });
+  } else {
+    router.replace({
+      path: '/docs',
+      query: { section: sectionId },
+      hash: `#${sectionId}`,
+    });
+  }
+  nextTick(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+}
+
+/** Keep tab in sync when URL changes (hash-only, query, back/forward) */
+function syncSectionFromUrl() {
+  const ids = getValidSectionIds();
+  const q = route.query.section;
+  if (typeof q === 'string' && ids.has(q)) {
+    activeSection.value = q;
+    return;
+  }
+  const fromRouteHash = route.hash.replace(/^#/, '').trim();
+  if (fromRouteHash && ids.has(fromRouteHash)) {
+    activeSection.value = fromRouteHash;
+    return;
+  }
+  if (typeof window !== 'undefined') {
+    const fromWin = window.location.hash.replace(/^#/, '').trim();
+    if (fromWin && ids.has(fromWin)) {
+      activeSection.value = fromWin;
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const qs = params.get('section');
+    if (qs && ids.has(qs)) {
+      activeSection.value = qs;
+      return;
+    }
+  }
+  activeSection.value = 'overview';
+}
+
+function onHashChange() {
+  syncSectionFromUrl();
+}
+
+onMounted(() => {
+  nextTick(() => syncSectionFromUrl());
+  requestAnimationFrame(() => syncSectionFromUrl());
+  window.addEventListener('hashchange', onHashChange);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('hashchange', onHashChange);
+});
+
+// No immediate: — first paint uses sectionFromBrowser(); router may not expose hash yet on tick 1
+watch(
+  () => [route.path, route.query.section, route.hash] as const,
+  () => syncSectionFromUrl()
+);
 
 const wsMessageTypes = [
   { type: 'chat', description: 'Send a chat message to the agent for processing' },
@@ -765,7 +877,9 @@ const wsMessageTypes = [
   { type: 'delegate', description: 'Delegate a task to another agent' },
 ];
 
-const baseUrl = 'http://localhost:3000';
+const baseUrl =
+  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3002';
+const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:3002';
 </script>
 
 <template>
@@ -819,14 +933,14 @@ const baseUrl = 'http://localhost:3000';
     </header>
 
     <div class="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-      <div class="grid lg:grid-cols-[220px_1fr] gap-8 lg:gap-12">
+      <div class="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-8 lg:gap-12">
         <!-- Sidebar - Desktop only -->
         <aside class="hidden lg:block lg:sticky lg:top-24 lg:h-fit">
           <nav class="space-y-0.5">
             <button
               v-for="section in sections"
               :key="section.id"
-              @click="activeSection = section.id"
+              @click="selectSection(section.id)"
               class="w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-lg transition-all"
               :class="activeSection === section.id 
                 ? 'bg-kage-900 text-white' 
@@ -843,7 +957,7 @@ const baseUrl = 'http://localhost:3000';
         <!-- Content -->
         <main class="min-w-0">
           <!-- Overview -->
-          <article v-show="activeSection === 'overview'" class="prose-custom">
+          <article v-if="activeSection === 'overview'" class="prose-custom">
             <div class="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8">
               <span class="text-3xl sm:text-5xl font-japanese text-kage-200">概要</span>
               <h1 class="text-2xl sm:text-4xl font-display font-bold text-kage-900">API Reference</h1>
@@ -870,13 +984,13 @@ const baseUrl = 'http://localhost:3000';
                   :key="section.id"
                   class="flex flex-col sm:flex-row sm:items-center justify-between py-2 border-b border-kage-50 last:border-0 gap-1"
                 >
-                  <button @click="activeSection = section.id" class="text-left hover:text-accent-600 transition-colors">
+                  <button @click="selectSection(section.id)" class="text-left hover:text-accent-600 transition-colors">
                     <span class="text-sm font-semibold text-kage-800">{{ section.title }}</span>
                   </button>
                   <span class="text-xs text-kage-400 font-mono">{{ section.endpoints.length }} endpoint{{ section.endpoints.length > 1 ? 's' : '' }}</span>
                 </div>
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between py-2 gap-1">
-                  <button @click="activeSection = 'websocket'" class="text-left hover:text-accent-600 transition-colors">
+                  <button @click="selectSection('websocket')" class="text-left hover:text-accent-600 transition-colors">
                     <span class="text-sm font-semibold text-kage-800">WebSocket</span>
                   </button>
                   <span class="text-xs text-kage-400 font-mono">{{ wsMessageTypes.length }} message types</span>
@@ -903,24 +1017,19 @@ const baseUrl = 'http://localhost:3000';
           </article>
 
           <!-- API Section Pages -->
-          <article 
-            v-for="section in apiSections" 
-            :key="section.id" 
-            v-show="activeSection === section.id" 
-            class="prose-custom"
-          >
+          <article v-if="activeApiSection" class="prose-custom">
             <div class="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
-              <span class="text-3xl sm:text-5xl font-japanese text-kage-200">{{ section.label }}</span>
-              <h1 class="text-2xl sm:text-4xl font-display font-bold text-kage-900">{{ section.title }}</h1>
+              <span class="text-3xl sm:text-5xl font-japanese text-kage-200">{{ activeApiSection.label }}</span>
+              <h1 class="text-2xl sm:text-4xl font-display font-bold text-kage-900">{{ activeApiSection.title }}</h1>
             </div>
 
             <p class="text-base sm:text-lg text-kage-600 mb-8 sm:mb-10 leading-relaxed">
-              {{ section.description }}
+              {{ activeApiSection.description }}
             </p>
 
             <div class="space-y-4">
               <div 
-                v-for="endpoint in section.endpoints" 
+                v-for="endpoint in activeApiSection.endpoints" 
                 :key="endpoint.id"
                 class="border border-kage-200 rounded-lg bg-white overflow-hidden"
               >
@@ -953,7 +1062,7 @@ const baseUrl = 'http://localhost:3000';
                     <p class="text-sm text-kage-600 leading-relaxed">{{ endpoint.description }}</p>
 
                     <!-- Request body -->
-                    <div v-if="endpoint.body">
+                    <div v-if="endpoint.body && Object.keys(endpoint.body).length">
                       <h4 class="text-xs font-semibold text-kage-800 uppercase tracking-wide mb-3">Request Body</h4>
                       <div class="bg-kage-50 rounded-lg overflow-hidden">
                         <table class="w-full text-sm">
@@ -1020,7 +1129,7 @@ const baseUrl = 'http://localhost:3000';
           </article>
 
           <!-- WebSocket -->
-          <article v-show="activeSection === 'websocket'" class="prose-custom">
+          <article v-if="activeSection === 'websocket'" class="prose-custom">
             <div class="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
               <span class="text-3xl sm:text-5xl font-japanese text-kage-200">繋</span>
               <h1 class="text-2xl sm:text-4xl font-display font-bold text-kage-900">WebSocket</h1>
@@ -1034,7 +1143,7 @@ const baseUrl = 'http://localhost:3000';
             <div class="border border-kage-200 rounded-lg p-4 sm:p-6 mb-8 bg-white">
               <h3 class="text-xs font-semibold text-kage-800 uppercase tracking-wide mb-3">Connection URL</h3>
               <div class="bg-kage-900 rounded-lg px-4 py-3 font-mono text-sm text-kage-100">
-                ws://localhost:3000
+                {{ wsBaseUrl }}
               </div>
             </div>
 

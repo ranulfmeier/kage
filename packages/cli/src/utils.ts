@@ -19,7 +19,7 @@ export interface KageConfig {
 
 const DEFAULT_CONFIG: KageConfig = {
   rpcUrl: process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
-  programId: process.env.KAGE_PROGRAM_ID || "PRDZsFBacoRGLW5bBumh4Wi42hv8N72akYcWhDgvt9s",
+  programId: process.env.KAGE_PROGRAM_ID || "ASK5m43oRE67ipfwuBbagVaiMQpFKYRTZNsvZXUfBtRp",
   network: "devnet",
   model: "claude-haiku-4-5-20251001",
   storageBackend: (process.env.STORAGE_BACKEND as "memory" | "arweave") ?? "memory",

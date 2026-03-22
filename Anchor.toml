@@ -6,17 +6,17 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-kage = "PRDZsFBacoRGLW5bBumh4Wi42hv8N72akYcWhDgvt9s"
+kage = "ASK5m43oRE67ipfwuBbagVaiMQpFKYRTZNsvZXUfBtRp"
 
 [programs.devnet]
-kage = "PRDZsFBacoRGLW5bBumh4Wi42hv8N72akYcWhDgvt9s"
+kage = "ASK5m43oRE67ipfwuBbagVaiMQpFKYRTZNsvZXUfBtRp"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "devnet"
-wallet = "~/.config/solana/id.json"
+wallet = "devnet-new-wallet.json"
 
 [scripts]
 test = "pnpm run test"

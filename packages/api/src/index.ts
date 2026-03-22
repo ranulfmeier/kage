@@ -20,7 +20,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT || 3002;
 const KAGE_PROGRAM_ID =
-  process.env.KAGE_PROGRAM_ID || "PRDZsFBacoRGLW5bBumh4Wi42hv8N72akYcWhDgvt9s";
+  process.env.KAGE_PROGRAM_ID || "ASK5m43oRE67ipfwuBbagVaiMQpFKYRTZNsvZXUfBtRp";
 
 function buildLLMProvider(): LLMProvider {
   const providerName = (process.env.LLM_PROVIDER ?? "claude").toLowerCase();
