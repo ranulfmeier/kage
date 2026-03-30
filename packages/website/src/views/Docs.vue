@@ -22,6 +22,7 @@ const sections = [
   { id: 'overview', label: '概要', title: 'Overview' },
   { id: 'health', label: '脈', title: 'Health' },
   { id: 'memory', label: '記憶', title: 'Memory' },
+  { id: 'access', label: '鍵', title: 'Access Control' },
   { id: 'messaging', label: '信', title: 'Messaging' },
   { id: 'groups', label: '群', title: 'Groups' },
   { id: 'payments', label: '払', title: 'Payments' },
@@ -66,14 +67,15 @@ const apiSections: ApiSection[] = [
         description: 'Returns the current server status, active agent identity, LLM provider configuration, and ZK engine state.',
         response: `{
   "status": "ok",
-  "agent": "agent-public-key",
+  "agent": "5MYxJjeKUq5Di7gqt8Sta7LnJVJMCHPqbxBLiLjNqHQP",
   "llm": {
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514"
+    "provider": "claude",
+    "model": "claude-haiku-4-5-20241022"
   },
   "zk": {
     "engine": "hash-commitment",
-    "mode": "commit-only",
+    "mode": "hash-commitment + prover-service",
+    "proverConnected": true,
     "commitments": 12
   }
 }`,
@@ -108,6 +110,47 @@ const apiSections: ApiSection[] = [
         description: 'Retrieve the agent\'s X25519 public key used for Diffie-Hellman key exchange in encrypted messaging.',
         response: `{
   "x25519PublicKey": "base64-encoded-public-key"
+}`,
+      },
+    ],
+  },
+  {
+    id: 'access',
+    label: '鍵',
+    title: 'Access Control',
+    description: 'On-chain access control for memory vaults. Grant and revoke permissions to other agents using Solana PDA-based access records.',
+    endpoints: [
+      {
+        id: 'post-access-grant',
+        method: 'POST',
+        path: '/access/grant',
+        description: 'Grant access to a vault for another agent. Creates an on-chain PDA record with specified permissions and optional expiration.',
+        body: {
+          vaultPubkey: 'string -- Public key of the vault to grant access to',
+          granteePubkey: 'string -- Public key of the agent receiving access',
+          permissions: 'number -- Bitmask of permissions (1=read, 2=write, 3=read+write)',
+          expiresAt: 'number? -- Unix timestamp for access expiration. Omit for no expiry.',
+        },
+        response: `{
+  "txSignature": "5K7x...",
+  "accessPda": "3Abc...",
+  "permissions": 3,
+  "explorerUrl": "https://explorer.solana.com/tx/5K7x...?cluster=devnet"
+}`,
+      },
+      {
+        id: 'post-access-revoke',
+        method: 'POST',
+        path: '/access/revoke',
+        description: 'Revoke a previously granted access. Closes the on-chain PDA record.',
+        body: {
+          vaultPubkey: 'string -- Public key of the vault',
+          granteePubkey: 'string -- Public key of the agent whose access is being revoked',
+        },
+        response: `{
+  "txSignature": "7Xyz...",
+  "status": "revoked",
+  "explorerUrl": "https://explorer.solana.com/tx/7Xyz...?cluster=devnet"
 }`,
       },
     ],
@@ -266,7 +309,7 @@ const apiSections: ApiSection[] = [
         description: 'Retrieve the global reputation leaderboard across all known agents.',
         response: `[
   {
-    "agentDID": "did:kage:abc...",
+    "agentDID": "did:sol:5MYx...",
     "score": 95,
     "rank": 1
   }
@@ -442,15 +485,16 @@ const apiSections: ApiSection[] = [
         path: '/did',
         description: 'Retrieve the agent\'s DID document containing public keys, service endpoints, and authentication methods.',
         response: `{
-  "id": "did:kage:abc123...",
-  "publicKey": [{
-    "id": "did:kage:abc123...#keys-1",
+  "id": "did:sol:5MYxJje...",
+  "verificationMethod": [{
+    "id": "did:sol:5MYxJje...#ed25519",
     "type": "Ed25519VerificationKey2020",
-    "publicKeyBase58": "..."
+    "publicKeyBase58": "5MYxJje..."
   }],
-  "service": [{
-    "type": "KageAgent",
-    "serviceEndpoint": "https://..."
+  "keyAgreement": [{
+    "id": "did:sol:5MYxJje...#x25519",
+    "type": "X25519KeyAgreementKey2020",
+    "publicKeyBase64": "..."
   }]
 }`,
       },
@@ -463,7 +507,7 @@ const apiSections: ApiSection[] = [
   {
     "id": "vc_001",
     "type": "ReputationCredential",
-    "issuer": "did:kage:issuer...",
+    "issuer": "did:sol:5MYxJje...",
     "issuanceDate": "2025-01-15T10:30:00Z",
     "expirationDate": "2026-01-15T10:30:00Z"
   }
@@ -484,8 +528,8 @@ const apiSections: ApiSection[] = [
   "credential": {
     "id": "vc_002",
     "type": "ReputationCredential",
-    "issuer": "did:kage:self...",
-    "subject": "did:kage:target...",
+    "issuer": "did:sol:5MYxJje...",
+    "subject": "did:sol:9AbcDef...",
     "claim": { "score": 95 },
     "proof": { "type": "Ed25519Signature2020", "..." : "..." }
   }
@@ -501,7 +545,7 @@ const apiSections: ApiSection[] = [
         },
         response: `{
   "valid": true,
-  "issuer": "did:kage:issuer...",
+  "issuer": "did:sol:5MYxJje...",
   "expired": false,
   "checks": ["signature", "expiration", "issuer"]
 }`,
@@ -510,18 +554,15 @@ const apiSections: ApiSection[] = [
         id: 'post-did-resolve',
         method: 'POST',
         path: '/did/resolve',
-        description: 'Resolve a DID to its full DID document. Supports did:kage method.',
+        description: 'Resolve a DID to its full DID document. Supports did:sol method.',
         body: {
-          did: 'string -- The DID to resolve (e.g., "did:kage:abc123...")',
+          did: 'string -- The DID to resolve (e.g., "did:sol:5MYxJje...")',
         },
         response: `{
   "didDocument": {
-    "id": "did:kage:abc123...",
-    "publicKey": [...],
-    "service": [...]
-  },
-  "didResolutionMetadata": {
-    "contentType": "application/did+json"
+    "id": "did:sol:5MYxJje...",
+    "verificationMethod": [...],
+    "keyAgreement": [...]
   }
 }`,
       },
@@ -561,7 +602,7 @@ const apiSections: ApiSection[] = [
         id: 'post-zk-commit-reputation',
         method: 'POST',
         path: '/zk/commit/reputation',
-        description: 'Create a ZK commitment for a reputation state. Commits a hash of the reputation events and claimed score.',
+        description: 'Create a ZK commitment for a reputation state. Commits a hash of the reputation events and claimed score, then anchors it on Solana via Memo.',
         body: {
           agentDID: 'string -- DID of the agent whose reputation is committed',
           events: 'array -- List of reputation events: [{ eventType, delta, timestamp }]',
@@ -571,14 +612,15 @@ const apiSections: ApiSection[] = [
   "commitmentId": "cmt_rep_001",
   "commitment": "0xabc...",
   "proofType": "reputation",
-  "status": "committed"
+  "status": "anchored",
+  "txSignature": "5K7x..."
 }`,
       },
       {
         id: 'post-zk-commit-memory',
         method: 'POST',
         path: '/zk/commit/memory',
-        description: 'Create a ZK commitment for a stored memory. Proves that a specific ciphertext was stored at a given time.',
+        description: 'Create a ZK commitment for a stored memory. Proves that a specific ciphertext was stored at a given time, anchored on Solana via Memo.',
         body: {
           agentDID: 'string -- DID of the storing agent',
           ciphertextHash: 'string -- Hash of the encrypted memory content',
@@ -589,14 +631,15 @@ const apiSections: ApiSection[] = [
   "commitmentId": "cmt_mem_001",
   "commitment": "0xdef...",
   "proofType": "memory",
-  "status": "committed"
+  "status": "anchored",
+  "txSignature": "3Abc..."
 }`,
       },
       {
         id: 'post-zk-commit-task',
         method: 'POST',
         path: '/zk/commit/task',
-        description: 'Create a ZK commitment for a completed task. Proves task execution integrity without revealing instructions or results.',
+        description: 'Create a ZK commitment for a completed task. Proves task execution integrity without revealing instructions or results, anchored on Solana via Memo.',
         body: {
           taskId: 'string -- Unique task identifier',
           instructionHash: 'string -- Hash of the task instructions',
@@ -609,7 +652,8 @@ const apiSections: ApiSection[] = [
   "commitmentId": "cmt_task_001",
   "commitment": "0x789...",
   "proofType": "task",
-  "status": "committed"
+  "status": "anchored",
+  "txSignature": "7Xyz..."
 }`,
       },
       {
@@ -620,13 +664,13 @@ const apiSections: ApiSection[] = [
         query: {
           agentDID: 'string? -- Filter by agent DID',
           proofType: 'string? -- Filter by type: "reputation", "memory", or "task"',
-          status: 'string? -- Filter by status: "committed", "proved", or "verified"',
+          status: 'string? -- Filter by status: "committed", "anchored", "proved", or "verified"',
         },
         response: `[
   {
     "id": "cmt_001",
     "proofType": "reputation",
-    "agentDID": "did:kage:...",
+    "agentDID": "did:sol:5MYx...",
     "commitment": "0xabc...",
     "status": "committed",
     "createdAt": "2025-01-15T10:30:00Z"
@@ -641,7 +685,7 @@ const apiSections: ApiSection[] = [
         response: `{
   "id": "cmt_001",
   "proofType": "reputation",
-  "agentDID": "did:kage:...",
+  "agentDID": "did:sol:5MYx...",
   "commitment": "0xabc...",
   "status": "committed",
   "createdAt": "2025-01-15T10:30:00Z",
@@ -971,8 +1015,12 @@ const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:3002';
 
             <div class="border border-kage-200 rounded-lg p-4 sm:p-6 mb-8 sm:mb-10 bg-white">
               <h3 class="text-sm font-semibold text-kage-800 uppercase tracking-wide mb-3">Base URL</h3>
-              <div class="bg-kage-900 rounded-lg px-4 py-3 font-mono text-sm text-kage-100">
+              <div class="bg-kage-900 rounded-lg px-4 py-3 font-mono text-sm text-kage-100 mb-3">
                 {{ baseUrl }}
+              </div>
+              <div class="text-xs text-kage-500">
+                <span class="font-medium text-kage-600">Production:</span>
+                <code class="ml-1 bg-kage-100 px-1.5 py-0.5 rounded text-kage-700">https://kageapi-production.up.railway.app</code>
               </div>
             </div>
 
@@ -1152,7 +1200,8 @@ const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:3002';
               <div class="bg-kage-900 rounded-lg p-4 overflow-x-auto">
                 <pre class="text-xs sm:text-sm text-kage-100 font-mono leading-relaxed">{
   "type": "message_type",
-  "payload": { ... }
+  "key": "value",
+  ...
 }</pre>
               </div>
             </div>
@@ -1190,9 +1239,7 @@ const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:3002';
                   <div class="bg-kage-900 rounded-lg p-4 mt-2 overflow-x-auto">
                     <pre class="text-xs sm:text-sm text-kage-100 font-mono leading-relaxed">{
   "type": "chat",
-  "payload": {
-    "message": "Remember my API key is sk-secret-123"
-  }
+  "message": "Remember my API key is sk-secret-123"
 }</pre>
                   </div>
                 </div>
@@ -1200,10 +1247,12 @@ const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:3002';
                   <span class="text-xs text-kage-500 uppercase tracking-wide font-semibold">Receive</span>
                   <div class="bg-kage-900 rounded-lg p-4 mt-2 overflow-x-auto">
                     <pre class="text-xs sm:text-sm text-kage-100 font-mono leading-relaxed">{
-  "type": "chat_response",
-  "payload": {
-    "message": "I've securely stored your API key.",
-    "memoryStored": true
+  "type": "message",
+  "text": "I've securely stored your API key.",
+  "proof": {
+    "cid": "Qm...",
+    "txSignature": "5K7x...",
+    "explorerUrl": "https://explorer.solana.com/tx/..."
   }
 }</pre>
                   </div>
@@ -1216,12 +1265,10 @@ const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:3002';
               <div class="bg-kage-900 rounded-lg p-4 overflow-x-auto">
                 <pre class="text-xs sm:text-sm text-kage-100 font-mono leading-relaxed">{
   "type": "shielded_pay",
-  "payload": {
-    "recipientPubkey": "GkXn...",
-    "recipientViewingPub": "Ax7f...",
-    "amountLamports": 50000000,
-    "memo": "Payment for data analysis"
-  }
+  "recipientPubkey": "GkXn...",
+  "recipientViewingPub": "Ax7f...",
+  "amountLamports": 50000000,
+  "memo": "Payment for data analysis"
 }</pre>
               </div>
             </div>
@@ -1231,11 +1278,9 @@ const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:3002';
               <div class="bg-kage-900 rounded-lg p-4 overflow-x-auto">
                 <pre class="text-xs sm:text-sm text-kage-100 font-mono leading-relaxed">{
   "type": "delegate",
-  "payload": {
-    "to": "executor-agent-pubkey",
-    "instruction": "Analyze token price trends for SOL",
-    "budget": 100000000
-  }
+  "to": "executor-agent-pubkey",
+  "instruction": "Analyze token price trends for SOL",
+  "budget": 100000000
 }</pre>
               </div>
             </div>
