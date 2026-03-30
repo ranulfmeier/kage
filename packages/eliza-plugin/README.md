@@ -22,7 +22,7 @@ export const character = {
   plugins: [kagePlugin],
   settings: {
     secrets: {
-      KAGE_API_URL: "https://kageapi.up.railway.app",
+      KAGE_API_URL: "https://kageapi-production.up.railway.app",
     },
   },
 };

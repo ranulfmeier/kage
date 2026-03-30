@@ -32,7 +32,7 @@ export { memoryProvider, identityProvider };
  *   const character = {
  *     name: "MyAgent",
  *     plugins: [kagePlugin],
- *     settings: { secrets: { KAGE_API_URL: "https://kageapi.up.railway.app" } },
+ *     settings: { secrets: { KAGE_API_URL: "https://kageapi-production.up.railway.app" } },
  *   };
  */
 export const kagePlugin: Plugin = {

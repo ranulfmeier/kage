@@ -5,12 +5,12 @@ KageClient wraps the Kage API server's HTTP REST and WebSocket endpoints.
 Cryptography is handled server-side; the SDK is a thin, typed interface.
 
 Usage (async):
-    async with KageClient("https://kageapi.up.railway.app") as client:
+    async with KageClient("https://kageapi-production.up.railway.app") as client:
         response = await client.chat("Remember: the API key is sk-xxx")
         print(response.text)
 
 Usage (sync, via run_sync helper):
-    client = KageClient.sync("https://kageapi.up.railway.app")
+    client = KageClient.sync("https://kageapi-production.up.railway.app")
     response = client.chat("Remember: the API key is sk-xxx")
 """
 from __future__ import annotations
@@ -594,7 +594,7 @@ class KageClient:
     Convenient for scripts and notebooks that don't use async/await.
 
     Example:
-        with KageClient("https://kageapi.up.railway.app") as client:
+        with KageClient("https://kageapi-production.up.railway.app") as client:
             response = client.chat("Remember: ETH is at 3200")
             print(response.text)
     """

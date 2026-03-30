@@ -7,7 +7,7 @@ Run:
 """
 from kage import KageClient
 
-API_URL = "http://localhost:3002"  # or "https://kageapi.up.railway.app"
+API_URL = "http://localhost:3002"  # or "https://kageapi-production.up.railway.app"
 
 
 def main() -> None:

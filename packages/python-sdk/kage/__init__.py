@@ -6,12 +6,13 @@ Quick start:
 
     from kage import KageClient
 
-    with KageClient("https://kageapi.up.railway.app") as client:
+    with KageClient("https://kageapi-production.up.railway.app") as client:
         response = client.chat("Remember: my Solana wallet is 7xKp...")
         print(response.text)
         if response.proof:
             print("On-chain proof:", response.proof.explorer_url)
 """
+from .agent import KageAgent
 from .client import KageAsyncClient, KageClient
 from .models import (
     AgentReputation,
@@ -31,6 +32,7 @@ from .models import (
 )
 
 __all__ = [
+    "KageAgent",
     "KageClient",
     "KageAsyncClient",
     # models

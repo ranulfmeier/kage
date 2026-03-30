@@ -19,7 +19,7 @@ pip install kage-sdk
 ```python
 from kage import KageClient
 
-with KageClient("https://kageapi.up.railway.app") as client:
+with KageClient("https://kageapi-production.up.railway.app") as client:
     # Store an encrypted memory
     resp = client.store("The RSI threshold for my strategy is 0.72")
     print(resp.text)
@@ -38,7 +38,7 @@ import asyncio
 from kage import KageAsyncClient
 
 async def main():
-    async with KageAsyncClient("https://kageapi.up.railway.app") as client:
+    async with KageAsyncClient("https://kageapi-production.up.railway.app") as client:
         resp = await client.chat("Summarise my trading strategy", deep_think=True)
         print(resp.text)
 
@@ -71,7 +71,7 @@ python team_vault.py          # Shared encrypted secrets (async)
 By default the client connects to `http://localhost:3002`. Pass any URL:
 
 ```python
-client = KageClient("https://kageapi.up.railway.app")
+client = KageClient("https://kageapi-production.up.railway.app")
 ```
 
 ## Deep Think
