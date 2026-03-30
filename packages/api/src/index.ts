@@ -102,7 +102,8 @@ app.get("/health", (_req, res) => {
     llm: { provider: llmProvider.name, model: llmProvider.model },
     zk: {
       engine: "sp1-v6.0.2",
-      mode: "hash-commitment + offline-proof",
+      mode: engine.proverAvailable ? "hash-commitment + prover-service" : "hash-commitment-only",
+      proverConnected: engine.proverAvailable,
       commitments: commitments.length,
     },
   });

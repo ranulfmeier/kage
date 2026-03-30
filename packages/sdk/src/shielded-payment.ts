@@ -155,7 +155,7 @@ export class ShieldedPaymentEngine {
       console.log(`[Kage:Payment] Shielded transfer sent: ${txSignature}`);
       console.log(`[Kage:Payment] Stealth address: ${stealthAddress.toBase58()}`);
     } catch (err) {
-      console.warn(`[Kage:Payment] On-chain transfer skipped: ${(err as Error).message.slice(0, 80)}`);
+      throw new Error(`[Kage:Payment] Shielded transfer failed: ${(err as Error).message}`);
     }
 
     const payment: ShieldedPayment = {

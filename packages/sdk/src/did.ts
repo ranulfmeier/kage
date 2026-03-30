@@ -7,7 +7,7 @@ import {
 } from "@solana/web3.js";
 import { createHash, randomBytes } from "crypto";
 // @ts-ignore
-import { x25519 } from "@noble/curves/ed25519.js";
+import { ed25519, x25519 } from "@noble/curves/ed25519.js";
 
 const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 
@@ -237,10 +237,10 @@ export class DIDEngine {
     const claimJson = JSON.stringify(claimWithMeta);
     const claimHash = createHash("sha256").update(claimJson).digest("hex");
 
-    // Sign: SHA-256(claimHash + issuerPubkey) with Ed25519 seed (simplified HMAC-style)
-    const signature = createHash("sha256")
-      .update(claimHash + this.keypair.publicKey.toBase58())
-      .digest("hex");
+    const claimHashBytes = Buffer.from(claimHash, "hex");
+    const seed = this.keypair.secretKey.slice(0, 32);
+    const signatureBytes = ed25519.sign(claimHashBytes, seed);
+    const signature = Buffer.from(signatureBytes).toString("hex");
 
     const now = Date.now();
     const credential: KageCredential = {
@@ -297,14 +297,17 @@ export class DIDEngine {
       return { valid: false, reason: "Claim hash mismatch — tampered" };
     }
 
-    // Extract issuer pubkey from DID
-    const issuerPubkey = credential.issuer.replace("did:sol:", "");
-    const expectedSig = createHash("sha256")
-      .update(credential.claimHash + issuerPubkey)
-      .digest("hex");
-
-    if (expectedSig !== credential.signature) {
-      return { valid: false, reason: "Signature invalid" };
+    try {
+      const issuerPubkeyBase58 = credential.issuer.replace("did:sol:", "");
+      const issuerPubkey = new PublicKey(issuerPubkeyBase58);
+      const sigBytes = Buffer.from(credential.signature, "hex");
+      const hashBytes = Buffer.from(credential.claimHash, "hex");
+      const valid = ed25519.verify(sigBytes, hashBytes, issuerPubkey.toBytes());
+      if (!valid) {
+        return { valid: false, reason: "Ed25519 signature verification failed" };
+      }
+    } catch {
+      return { valid: false, reason: "Signature verification error" };
     }
 
     return { valid: true };

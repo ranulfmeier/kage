@@ -230,10 +230,7 @@ export class KageVault {
       umbraProof
     );
 
-    const isSimulated = txSignature.startsWith("sim-");
-    const explorerUrl = isSimulated
-      ? undefined
-      : `https://solscan.io/tx/${txSignature}?cluster=devnet`;
+    const explorerUrl = `https://solscan.io/tx/${txSignature}?cluster=devnet`;
 
     return {
       memoryId: cid,
@@ -373,9 +370,10 @@ export class KageVault {
     return mapping[value] || MemoryType.Knowledge;
   }
 
-  // Discriminators from IDL (no dynamic loading needed)
-  private static readonly DISC_INIT_VAULT   = Buffer.from([48,191,163,44,71,129,63,164]);
-  private static readonly DISC_STORE_MEMORY = Buffer.from([168,103,88,240,93,185,30,235]);
+  private static readonly DISC_INIT_VAULT    = Buffer.from([48,191,163,44,71,129,63,164]);
+  private static readonly DISC_STORE_MEMORY  = Buffer.from([168,103,88,240,93,185,30,235]);
+  private static readonly DISC_GRANT_ACCESS  = Buffer.from([66,88,87,113,39,22,27,165]);
+  private static readonly DISC_REVOKE_ACCESS = Buffer.from([106,128,38,169,103,238,102,147]);
 
   private async ensureVaultInitialized(): Promise<void> {
     const vaultPda = this.getVaultAddress();
@@ -466,8 +464,7 @@ export class KageVault {
       console.log(`[Kage] Memory stored on-chain: ${txSig}`);
       return txSig;
     } catch (err) {
-      console.warn(`[Kage] On-chain store failed, using simulated tx: ${err}`);
-      return `sim-${Date.now()}`;
+      throw new Error(`[Kage] On-chain store_memory failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -483,15 +480,70 @@ export class KageVault {
     permissions: number,
     expiresAt: number
   ): Promise<string> {
-    console.log(
-      `[Kage] Granting access to ${grantee.toBase58()} with permissions ${permissions}`
-    );
-    return `simulated-tx-${Date.now()}`;
+    await this.ensureVaultInitialized();
+
+    const vaultPda = this.getVaultAddress();
+    const accessGrantPda = this.getAccessGrantAddress(grantee);
+
+    const data = Buffer.alloc(8 + 32 + 1 + 8);
+    let offset = 0;
+    KageVault.DISC_GRANT_ACCESS.copy(data, offset); offset += 8;
+    grantee.toBuffer().copy(data, offset); offset += 32;
+    data.writeUInt8(permissions, offset); offset += 1;
+    data.writeBigInt64LE(BigInt(expiresAt), offset);
+
+    const ix = new TransactionInstruction({
+      programId: this.config.programId,
+      keys: [
+        { pubkey: vaultPda,                   isSigner: false, isWritable: false },
+        { pubkey: accessGrantPda,             isSigner: false, isWritable: true  },
+        { pubkey: this.ownerKeypair.publicKey, isSigner: true,  isWritable: true  },
+        { pubkey: SystemProgram.programId,    isSigner: false, isWritable: false },
+      ],
+      data,
+    });
+
+    const tx = new Transaction().add(ix);
+    tx.feePayer = this.ownerKeypair.publicKey;
+    tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+    tx.sign(this.ownerKeypair);
+
+    const txSig = await this.connection.sendRawTransaction(tx.serialize());
+    await this.connection.confirmTransaction(txSig, "confirmed");
+
+    console.log(`[Kage] Access granted on-chain to ${grantee.toBase58()}: ${txSig}`);
+    return txSig;
   }
 
   private async sendRevokeAccessTransaction(grantee: PublicKey): Promise<string> {
-    console.log(`[Kage] Revoking access from ${grantee.toBase58()}`);
-    return `simulated-tx-${Date.now()}`;
+    const vaultPda = this.getVaultAddress();
+    const accessGrantPda = this.getAccessGrantAddress(grantee);
+
+    const data = Buffer.alloc(8 + 32);
+    KageVault.DISC_REVOKE_ACCESS.copy(data, 0);
+    grantee.toBuffer().copy(data, 8);
+
+    const ix = new TransactionInstruction({
+      programId: this.config.programId,
+      keys: [
+        { pubkey: vaultPda,                   isSigner: false, isWritable: false },
+        { pubkey: accessGrantPda,             isSigner: false, isWritable: true  },
+        { pubkey: this.ownerKeypair.publicKey, isSigner: true,  isWritable: true  },
+        { pubkey: SystemProgram.programId,    isSigner: false, isWritable: false },
+      ],
+      data,
+    });
+
+    const tx = new Transaction().add(ix);
+    tx.feePayer = this.ownerKeypair.publicKey;
+    tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+    tx.sign(this.ownerKeypair);
+
+    const txSig = await this.connection.sendRawTransaction(tx.serialize());
+    await this.connection.confirmTransaction(txSig, "confirmed");
+
+    console.log(`[Kage] Access revoked on-chain from ${grantee.toBase58()}: ${txSig}`);
+    return txSig;
   }
 }
 

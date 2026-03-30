@@ -41,6 +41,13 @@ export interface MessageContent {
 
 export interface MessagingConfig {
   rpcUrl: string;
+  relayUrl?: string;
+}
+
+export interface MessageTransport {
+  send(msg: AgentMessage): void;
+  onMessage(handler: (msg: AgentMessage) => void): void;
+  close(): void;
 }
 
 const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
@@ -52,6 +59,8 @@ export class MessagingEngine {
   private agentKeypair: Keypair;
   private inbox: AgentMessage[] = [];
   private outbox: AgentMessage[] = [];
+  private transport: MessageTransport | null = null;
+  private relayWs: WebSocket | null = null;
 
   /** This agent's X25519 public key (base64) — share with other agents */
   readonly x25519PublicKey: string;
@@ -63,6 +72,57 @@ export class MessagingEngine {
     const seed = agentKeypair.secretKey.slice(0, 32);
     const pub: Uint8Array = x25519.getPublicKey(seed);
     this.x25519PublicKey = Buffer.from(pub).toString("base64");
+  }
+
+  /**
+   * Connect to an API relay server via WebSocket for real message transport.
+   * Messages sent via sendMessage() will be relayed; incoming messages
+   * are automatically delivered to the inbox.
+   */
+  connectRelay(url: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(url);
+      this.relayWs = ws;
+
+      ws.onopen = () => {
+        console.log(`[Kage:Messaging] Relay connected: ${url}`);
+        resolve();
+      };
+
+      ws.onerror = (err) => {
+        console.warn(`[Kage:Messaging] Relay error:`, err);
+        reject(new Error("WebSocket relay connection failed"));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(typeof event.data === "string" ? event.data : "{}");
+          if (data.type === "message_sent" && data.message) {
+            this.deliverToInbox(data.message);
+          }
+          if (data.type === "message_received" && data.content) {
+            console.log(`[Kage:Messaging] Relay delivered: ${data.messageId}`);
+          }
+        } catch { /* ignore malformed messages */ }
+      };
+
+      ws.onclose = () => {
+        console.log(`[Kage:Messaging] Relay disconnected`);
+        this.relayWs = null;
+      };
+    });
+  }
+
+  /** Disconnect from the relay server */
+  disconnectRelay(): void {
+    this.relayWs?.close();
+    this.relayWs = null;
+  }
+
+  /** Set a custom message transport (alternative to WebSocket relay) */
+  setTransport(transport: MessageTransport): void {
+    this.transport = transport;
+    transport.onMessage((msg) => this.deliverToInbox(msg));
   }
 
   /**
@@ -111,6 +171,18 @@ export class MessagingEngine {
     };
 
     this.outbox.push(msg);
+
+    if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN) {
+      this.relayWs.send(JSON.stringify({
+        type: "send_message",
+        recipientPubkey: recipientSolanaPub.toBase58(),
+        recipientX25519Pub,
+        text: content.text,
+      }));
+    } else if (this.transport) {
+      this.transport.send(msg);
+    }
+
     console.log(`[Kage:Messaging] Sent: ${messageId} → ${recipientSolanaPub.toBase58().slice(0, 8)}…`);
     return msg;
   }

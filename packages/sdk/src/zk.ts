@@ -40,7 +40,7 @@ export interface OnChainVerificationResult {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type ZKProofType = "reputation" | "memory" | "task";
-export type ZKCommitmentStatus = "pending" | "proved" | "verified" | "failed";
+export type ZKCommitmentStatus = "pending" | "anchored" | "proved" | "verified" | "failed";
 
 export interface ZKCommitment {
   id: string;
@@ -97,6 +97,7 @@ export class ZKCommitmentEngine {
   private connection: Connection;
   private keypair: Keypair;
   private commitments: Map<string, ZKCommitment> = new Map();
+  private inputCache: Map<string, unknown> = new Map();
   private proverClient: ProverClient | null = null;
 
   constructor(
@@ -285,40 +286,41 @@ export class ZKCommitmentEngine {
 
     let proofRecord: ProofRecord;
 
+    const cachedInput = this.inputCache.get(commitmentId);
+
     switch (commitment.proofType) {
       case "reputation": {
-        const outputs = commitment.publicOutputs;
+        const repInput = cachedInput as ReputationCommitmentInput | undefined;
+        const proverEvents = (repInput?.events ?? []).map((e) => ({
+          event_type: e.eventType,
+          delta: e.delta,
+          timestamp: e.timestamp,
+        }));
         proofRecord = await this.proverClient.submitReputationProof({
           agent_did: commitment.agentDID,
-          events: [],
-          claimed_score: (outputs.final_score as number) ?? 0,
+          events: proverEvents,
+          claimed_score: repInput?.claimedScore ?? (commitment.publicOutputs.final_score as number) ?? 0,
         });
         break;
       }
       case "memory": {
-        const outputs = commitment.publicOutputs;
+        const memInput = cachedInput as MemoryCommitmentInput | undefined;
         proofRecord = await this.proverClient.submitMemoryProof({
           agent_did: commitment.agentDID,
-          ciphertext_hash: (outputs.ciphertext_hash as string) ?? "",
-          stored_at: (outputs.stored_at as number) ?? 0,
-          memory_type: ((outputs.memory_type as string) ?? "episodic") as
-            | "episodic"
-            | "semantic"
-            | "procedural",
+          ciphertext_hash: memInput?.ciphertextHash ?? (commitment.publicOutputs.ciphertext_hash as string) ?? "",
+          stored_at: memInput?.storedAt ?? (commitment.publicOutputs.stored_at as number) ?? 0,
+          memory_type: memInput?.memoryType ?? "episodic",
         });
         break;
       }
       case "task": {
-        const outputs = commitment.publicOutputs;
+        const taskInput = cachedInput as TaskCommitmentInput | undefined;
         proofRecord = await this.proverClient.submitTaskProof({
-          task_id: (outputs.task_id as string) ?? "",
-          instruction_hash: (outputs.instruction_hash as string) ?? "",
-          result_hash: (outputs.result_hash as string) ?? "",
-          outcome: ((outputs.outcome as string) ?? "success") as
-            | "success"
-            | "partial"
-            | "failure",
-          executor_did: commitment.agentDID,
+          task_id: taskInput?.taskId ?? (commitment.publicOutputs.task_id as string) ?? "",
+          instruction_hash: taskInput?.instructionHash ?? (commitment.publicOutputs.instruction_hash as string) ?? "",
+          result_hash: taskInput?.resultHash ?? (commitment.publicOutputs.result_hash as string) ?? "",
+          outcome: taskInput?.outcome ?? ((commitment.publicOutputs.outcome as string) ?? "success") as "success" | "partial" | "failure",
+          executor_did: taskInput?.executorDID ?? commitment.agentDID,
         });
         break;
       }
@@ -570,7 +572,6 @@ export class ZKCommitmentEngine {
       createdAt: Date.now(),
     };
 
-    // Anchor on Solana
     try {
       const memo = JSON.stringify({
         kage: "zk_commitment",
@@ -581,12 +582,13 @@ export class ZKCommitmentEngine {
         ts: commitment.createdAt,
       });
       commitment.txSignature = await this.writeMemoProgramTx(memo);
-      commitment.status = "verified";
+      commitment.status = "anchored";
     } catch (err) {
       console.warn(`[ZK] Solana anchor failed for ${id}:`, err);
     }
 
     this.commitments.set(id, commitment);
+    this.inputCache.set(id, privateInputs);
     return commitment;
   }
 
