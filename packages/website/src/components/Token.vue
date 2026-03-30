@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 
-const contractAddress = ref('Coming Soon');
+const contractAddress = ref('Fm5fvFsVQrkv77MZtJRr7vGB71voYYtDPiCWEfxspump');
 const copied = ref(false);
 
 const tiers = [
@@ -38,7 +38,7 @@ const tiers = [
 ];
 
 async function copyAddress() {
-  if (contractAddress.value === 'Coming Soon') return;
+  if (!contractAddress.value || contractAddress.value === 'Coming Soon') return;
   
   await navigator.clipboard.writeText(contractAddress.value);
   copied.value = true;
@@ -94,7 +94,7 @@ async function copyAddress() {
             </button>
           </div>
           <p class="text-kage-500 text-xs mt-3">
-            Token will be launched on pump.fun. Contract address will be updated here.
+            Live on pump.fun — click to copy the contract address.
           </p>
         </div>
       </div>
