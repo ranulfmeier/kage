@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { RouterLink } from 'vue-router';
+import { useWallet } from 'solana-wallets-vue';
+import WalletButton from '../components/WalletButton.vue';
 
 const WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3002';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
@@ -60,6 +62,18 @@ const memories = ref<Memory[]>([]);
 const showMemories = ref(false);
 const messagesEl = ref<HTMLElement | null>(null);
 const mobileMenuOpen = ref(false);
+
+const { publicKey: walletPubkey, connected: walletConnected } = useWallet();
+const walletAddress = computed(() => walletPubkey.value?.toBase58() ?? '');
+const walletShort = computed(() => {
+  if (!walletAddress.value) return '';
+  return `${walletAddress.value.slice(0, 4)}…${walletAddress.value.slice(-4)}`;
+});
+const effectiveDID = computed(() => {
+  if (walletAddress.value) return `did:sol:${walletAddress.value}`;
+  if (agentId.value) return `did:sol:${agentId.value}`;
+  return 'did:sol:demo';
+});
 
 // Delegation state
 const delegTasks = ref<DelegationTaskUI[]>([]);
@@ -313,14 +327,14 @@ async function createZKCommitment() {
     if (zkCommitType.value === 'reputation') {
       url = `${API_URL}/zk/commit/reputation`;
       body = {
-        agentDID: agentId.value ? `did:sol:${agentId.value}` : 'did:sol:demo',
+        agentDID: effectiveDID.value,
         events: zkRepEvents.value,
         claimedScore: zkRepScore.value,
       };
     } else if (zkCommitType.value === 'memory') {
       url = `${API_URL}/zk/commit/memory`;
       body = {
-        agentDID: agentId.value ? `did:sol:${agentId.value}` : 'did:sol:demo',
+        agentDID: effectiveDID.value,
         ciphertextHash: zkMemCiphertextHash.value || 'a'.repeat(64),
         storedAt: Date.now(),
         memoryType: zkMemType.value,
@@ -328,12 +342,12 @@ async function createZKCommitment() {
     } else {
       url = `${API_URL}/zk/commit/task`;
       body = {
-        agentDID: agentId.value ? `did:sol:${agentId.value}` : 'did:sol:demo',
+        agentDID: effectiveDID.value,
         taskId: zkTaskId.value || `task-${Date.now()}`,
         instructionHash: 'a'.repeat(64),
         resultHash: 'b'.repeat(64),
         outcome: zkTaskOutcome.value,
-        executorDID: agentId.value ? `did:sol:${agentId.value}` : 'did:sol:demo',
+        executorDID: effectiveDID.value,
       };
     }
 
@@ -1123,6 +1137,7 @@ onUnmounted(() => {
           <RouterLink to="/docs" class="text-stone-500 hover:text-stone-900 transition-colors">Docs</RouterLink>
           <RouterLink to="/roadmap" class="text-stone-500 hover:text-stone-900 transition-colors">Roadmap</RouterLink>
           <a href="https://github.com/ranulfmeier/kage" target="_blank" class="text-stone-500 hover:text-stone-900 transition-colors">GitHub</a>
+          <WalletButton />
         </nav>
         <button class="sm:hidden text-stone-600" @click="mobileMenuOpen = !mobileMenuOpen">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1134,6 +1149,9 @@ onUnmounted(() => {
         <RouterLink to="/docs" @click="mobileMenuOpen = false">Docs</RouterLink>
         <RouterLink to="/roadmap" @click="mobileMenuOpen = false">Roadmap</RouterLink>
         <a href="https://github.com/ranulfmeier/kage" target="_blank">GitHub</a>
+        <div class="pt-2 border-t border-stone-200">
+          <WalletButton variant="dark" />
+        </div>
       </div>
     </header>
 
@@ -1151,6 +1169,10 @@ onUnmounted(() => {
           </div>
           <p v-if="agentId" class="text-[10px] font-mono text-stone-400 truncate leading-tight">{{ agentId.slice(0,18) }}…</p>
           <p v-if="llmProvider" class="text-[9px] text-stone-400 truncate leading-tight mt-0.5">{{ llmProvider }}</p>
+          <div v-if="walletConnected" class="flex items-center gap-1.5 mt-1.5 px-2 py-1 bg-accent-50 rounded border border-accent-200/50">
+            <div class="w-1.5 h-1.5 rounded-full bg-accent-500 shrink-0"></div>
+            <span class="text-[10px] font-mono text-accent-700 truncate">{{ walletShort }}</span>
+          </div>
           <button @click="connect" class="mt-1.5 text-[10px] tracking-widest uppercase text-stone-400 hover:text-stone-700 transition-colors">
             {{ isConnected ? 'Restart' : 'Connect' }}
           </button>
@@ -1266,6 +1288,12 @@ onUnmounted(() => {
           <div class="flex justify-between items-center text-[10px]">
             <span class="text-stone-400">Privacy</span>
             <span class="text-stone-600 font-medium">Umbra</span>
+          </div>
+          <div class="flex justify-between items-center text-[10px]">
+            <span class="text-stone-400">Wallet</span>
+            <span class="font-medium" :class="walletConnected ? 'text-accent-600' : 'text-stone-400'">
+              {{ walletConnected ? walletShort : 'Not connected' }}
+            </span>
           </div>
           <button v-if="isConnected" @click="fetchMemories"
             class="block text-[10px] text-stone-400 hover:text-stone-600 transition-colors underline underline-offset-2">

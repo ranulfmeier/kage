@@ -172,3 +172,42 @@
   .animation-delay-700 { animation-delay: 700ms; }
   .animation-delay-1000 { animation-delay: 1000ms; }
 }
+
+/* solana-wallets-vue overrides */
+.swv-dropdown {
+  font-family: 'Inter', system-ui, sans-serif !important;
+}
+
+.swv-modal-wrapper {
+  backdrop-filter: blur(8px) !important;
+  background: rgba(15, 15, 26, 0.6) !important;
+}
+
+.swv-modal-container {
+  background: #fff !important;
+  border: 1px solid #ecedf0 !important;
+  border-radius: 1rem !important;
+  box-shadow: 0 25px 50px -12px rgba(26, 26, 46, 0.35) !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+}
+
+.swv-modal-container .swv-modal-title {
+  color: #1a1a2e !important;
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif !important;
+}
+
+.swv-modal-container .swv-button {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 0.75rem !important;
+  transition: all 0.2s !important;
+}
+
+.swv-modal-container .swv-button:hover {
+  background: #f7f7f8 !important;
+  border-color: #d5d7de !important;
+}
+
+.swv-modal-container .swv-button-text {
+  color: #3a3d4a !important;
+}
