@@ -4,7 +4,7 @@ import { RouterLink } from 'vue-router';
 
 const isVisible = ref(false);
 const copied = ref(false);
-const contractAddress = ref('Fa6oMfNd2CUpDX4AxAvbiikafZ6JxLdxdugY273Tpump');
+const contractAddress = ref('Fm5fvFsVQrkv77MZtJRr7vGB71voYYtDPiCWEfxspump');
 const isScrolled = ref(false);
 const mobileMenuOpen = ref(false);
 

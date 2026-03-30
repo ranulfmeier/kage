@@ -53,3 +53,6 @@ test-*.mjs
 
 # Demo / marketing assets
 demos/
+
+# Internal planning
+roadmap.md

@@ -77,12 +77,39 @@ const phases = [
   },
   {
     number: '七',
-    name: 'Next',
+    name: 'Foundation',
     status: 'current',
     items: [
       { text: 'Hosted prover service (Succinct Network)', done: true },
       { text: 'On-chain ZK verifier (Solana program)', done: true },
+      { text: 'Production-grade access control (real Solana TX)', done: false },
+      { text: 'Real Ed25519 DID credential signing', done: false },
+      { text: 'WebSocket relay messaging transport', done: false },
       { text: 'Mainnet deployment', done: false },
+      { text: 'Anchor + SDK test coverage', done: false },
+    ],
+  },
+  {
+    number: '八',
+    name: 'Adoption',
+    status: 'next',
+    items: [
+      { text: 'LangChain + CrewAI tool wrappers', done: false },
+      { text: 'Phantom & Solflare wallet connect', done: false },
+      { text: 'Token-gated API access ($KAGE tiers)', done: false },
+      { text: 'Demo agents (Claude, ElizaOS, CrewAI)', done: false },
+      { text: 'Developer quickstart documentation', done: false },
+    ],
+  },
+  {
+    number: '九',
+    name: 'Horizon',
+    status: 'future',
+    items: [
+      { text: 'Light Protocol (Solana-native shielded TX)', done: false },
+      { text: 'On-chain circuit registry (ZK versioning)', done: false },
+      { text: 'Agent discovery & marketplace', done: false },
+      { text: 'Private semantic memory search (ZK + embeddings)', done: false },
     ],
   },
 ];
