@@ -39,11 +39,12 @@ async function copyAddress() {
   setTimeout(() => copied.value = false, 2000);
 }
 
+const tokenGateLive = false; // flips to true when token gate activates
 const tiers = [
-  { name: '影 Shadow', kage: '10K', desc: 'Basic access' },
-  { name: '幻 Phantom', kage: '100K', desc: 'Pro features' },
-  { name: '霊 Specter', kage: '500K', desc: 'Unlimited' },
-  { name: '忍 Kage', kage: '1M', desc: 'Enterprise' },
+  { name: '影 Shadow', kage: '10B', pct: '0.001%', desc: 'Basic access + multi-agent' },
+  { name: '幻 Phantom', kage: '100B', pct: '0.01%', desc: 'Pro features + ZK proofs' },
+  { name: '霊 Specter', kage: '500B', pct: '0.05%', desc: 'Unlimited + team vaults' },
+  { name: '忍 Kage', kage: '1T', pct: '0.1%', desc: 'Enterprise + priority + DAO' },
 ];
 </script>
 
@@ -254,9 +255,18 @@ const tiers = [
         <div class="grid lg:grid-cols-2 gap-10 lg:gap-16 items-start">
           <!-- Left: Contract -->
           <div>
-            <p class="text-base sm:text-lg text-kage-500 mb-6 sm:mb-8 leading-relaxed">
+            <p class="text-base sm:text-lg text-kage-500 mb-4 sm:mb-6 leading-relaxed">
               Hold $KAGE to access the protocol. No staking, no locking. Just hold tokens in your wallet.
             </p>
+
+            <!-- Free Access Banner -->
+            <div class="mb-6 sm:mb-8 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-50 to-emerald-100/50 border border-emerald-200/50">
+              <div class="flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse-soft"></div>
+                <span class="text-sm font-medium text-emerald-700">All features currently free</span>
+              </div>
+              <p class="text-xs text-emerald-600/80 mt-1 ml-4">Token-gated access activates in 2 weeks. Get your $KAGE now.</p>
+            </div>
 
             <!-- Contract Address -->
             <div class="border-l-2 border-accent-500 pl-4 sm:pl-6 mb-8 sm:mb-12">
@@ -302,6 +312,7 @@ const tiers = [
                 <span class="text-base sm:text-lg font-bold text-kage-800">{{ tier.kage }}</span>
                 <span class="text-kage-400 text-xs sm:text-sm ml-1">$KAGE</span>
                 <p class="text-xs text-kage-400">{{ tier.desc }}</p>
+                <p class="text-[10px] text-kage-300 font-mono">{{ tier.pct }} of supply</p>
               </div>
             </div>
           </div>

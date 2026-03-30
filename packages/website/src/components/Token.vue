@@ -7,31 +7,35 @@ const copied = ref(false);
 const tiers = [
   {
     name: 'Shadow',
-    icon: '🌑',
-    required: '10,000',
-    features: ['Basic access', '10 memories/day', 'Standard support'],
+    kanji: '影',
+    required: '10B',
+    pct: '0.001%',
+    features: ['Basic access', '50 memories/day', 'Multi-agent'],
     color: 'kage',
   },
   {
     name: 'Phantom',
-    icon: '👤',
-    required: '100,000',
-    features: ['Pro features', '100 memories/day', 'API access'],
+    kanji: '幻',
+    required: '100B',
+    pct: '0.01%',
+    features: ['Pro features', '500 memories/day', 'ZK proofs'],
     color: 'kage',
     popular: false,
   },
   {
     name: 'Specter',
-    icon: '👻',
-    required: '500,000',
-    features: ['Unlimited memories', 'Multi-agent support', 'Priority API'],
+    kanji: '霊',
+    required: '500B',
+    pct: '0.05%',
+    features: ['Unlimited memories', 'Team vaults', 'Priority API'],
     color: 'accent',
     popular: true,
   },
   {
     name: 'Kage',
-    icon: '🥷',
-    required: '1,000,000',
+    kanji: '忍',
+    required: '1T',
+    pct: '0.1%',
     features: ['Enterprise features', 'DAO voting', 'Priority support'],
     color: 'accent',
   },
@@ -67,6 +71,10 @@ async function copyAddress() {
         <p class="text-lg text-kage-300 max-w-2xl mx-auto mt-6">
           Hold $KAGE tokens to unlock Kage features. No staking required — just hold in your wallet.
         </p>
+        <div class="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+          <div class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+          <span class="text-sm text-emerald-400 font-medium">All features currently free — token gate activates soon</span>
+        </div>
       </div>
 
       <!-- Contract Address -->
@@ -123,13 +131,14 @@ async function copyAddress() {
             }"
           >
             <div class="text-center mb-6">
-              <span class="text-4xl mb-3 block">{{ tier.icon }}</span>
+              <span class="text-4xl mb-3 block font-japanese">{{ tier.kanji }}</span>
               <h3 class="text-xl font-bold text-white">{{ tier.name }}</h3>
             </div>
             
             <div class="text-center mb-6">
               <span class="text-3xl font-bold text-white">{{ tier.required }}</span>
               <span class="text-kage-400 text-sm block">$KAGE required</span>
+              <span class="text-kage-500 text-xs font-mono block mt-0.5">{{ tier.pct }} of supply</span>
             </div>
             
             <ul class="space-y-3">

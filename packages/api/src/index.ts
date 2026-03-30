@@ -11,7 +11,7 @@ import {
   createOllamaProvider,
   type LLMProvider,
 } from "@kage/agent";
-import { ZKCommitmentEngine, ProverClient } from "@kage/sdk";
+import { ZKCommitmentEngine, ProverClient, KageTierManager, KageTier, isTokenGateActive, daysUntilTokenGate, TIER_FEATURES, KAGE_MINT } from "@kage/sdk";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -106,7 +106,48 @@ app.get("/health", (_req, res) => {
       proverConnected: engine.proverAvailable,
       commitments: commitments.length,
     },
+    tokenGate: {
+      active: isTokenGateActive(),
+      daysUntilActivation: daysUntilTokenGate(),
+      mode: isTokenGateActive() ? "enforced" : "free-for-all",
+    },
   });
+});
+
+const tierManager = new KageTierManager(SOLANA_RPC_URL, KAGE_MINT);
+
+app.get("/tier", async (req, res) => {
+  const wallet = req.query.wallet as string | undefined;
+  const active = isTokenGateActive();
+  const daysLeft = daysUntilTokenGate();
+
+  if (!wallet) {
+    return res.json({
+      tokenGateActive: active,
+      daysUntilActivation: daysLeft,
+      tier: active ? KageTier.Free : KageTier.Kage,
+      features: TIER_FEATURES[active ? KageTier.Free : KageTier.Kage],
+      message: active
+        ? "Connect wallet to check your tier"
+        : `All features free until token gate activates (${daysLeft} days)`,
+    });
+  }
+
+  try {
+    const { PublicKey } = await import("@solana/web3.js");
+    const pubkey = new PublicKey(wallet);
+    const tier = await tierManager.checkTier(pubkey);
+    const features = TIER_FEATURES[tier];
+    return res.json({
+      tokenGateActive: active,
+      daysUntilActivation: daysLeft,
+      wallet,
+      tier,
+      features,
+    });
+  } catch {
+    return res.status(400).json({ error: "Invalid wallet address" });
+  }
 });
 
 app.get("/memories", async (_req, res) => {

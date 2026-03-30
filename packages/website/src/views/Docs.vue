@@ -21,6 +21,7 @@ function isExpanded(id: string) {
 const sections = [
   { id: 'overview', label: '概要', title: 'Overview' },
   { id: 'health', label: '脈', title: 'Health' },
+  { id: 'tiers', label: '段', title: 'Token Tiers' },
   { id: 'memory', label: '記憶', title: 'Memory' },
   { id: 'access', label: '鍵', title: 'Access Control' },
   { id: 'messaging', label: '信', title: 'Messaging' },
@@ -77,6 +78,43 @@ const apiSections: ApiSection[] = [
     "mode": "hash-commitment + prover-service",
     "proverConnected": true,
     "commitments": 12
+  },
+  "tokenGate": {
+    "active": false,
+    "daysUntilActivation": 39,
+    "mode": "free-for-all"
+  }
+}`,
+      },
+    ],
+  },
+  {
+    id: 'tiers',
+    label: '段',
+    title: 'Token Tiers',
+    description: 'Token-gated access based on $KAGE holdings. Currently all features are free. Token gate activates April 13, 2026.',
+    endpoints: [
+      {
+        id: 'get-tier',
+        method: 'GET',
+        path: '/tier?wallet={publicKey}',
+        description: 'Check the tier and available features for a wallet. Omit wallet param for general status. Returns current mode (free-for-all vs enforced) and days until activation.',
+        response: `{
+  "tokenGateActive": false,
+  "daysUntilActivation": 39,
+  "wallet": "5MYx...",
+  "tier": "kage",
+  "features": {
+    "tier": "kage",
+    "displayName": "Kage",
+    "memoriesPerDay": -1,
+    "unlimitedMemories": true,
+    "apiAccess": true,
+    "multiAgent": true,
+    "zkProofs": true,
+    "teamVaults": true,
+    "prioritySupport": true,
+    "daoVoting": true
   }
 }`,
       },

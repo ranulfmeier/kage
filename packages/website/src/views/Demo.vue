@@ -1295,6 +1295,13 @@ onUnmounted(() => {
               {{ walletConnected ? walletShort : 'Not connected' }}
             </span>
           </div>
+          <div class="flex justify-between items-center text-[10px]">
+            <span class="text-stone-400">Tier</span>
+            <span class="font-medium text-emerald-600 flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              Free (all features)
+            </span>
+          </div>
           <button v-if="isConnected" @click="fetchMemories"
             class="block text-[10px] text-stone-400 hover:text-stone-600 transition-colors underline underline-offset-2">
             View vault →
