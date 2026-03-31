@@ -1135,6 +1135,7 @@ onUnmounted(() => {
         </RouterLink>
         <nav class="hidden sm:flex items-center gap-6 text-xs tracking-widest uppercase">
           <RouterLink to="/docs" class="text-stone-500 hover:text-stone-900 transition-colors">Docs</RouterLink>
+          <RouterLink to="/agents" class="text-stone-500 hover:text-stone-900 transition-colors">Agents</RouterLink>
           <RouterLink to="/roadmap" class="text-stone-500 hover:text-stone-900 transition-colors">Roadmap</RouterLink>
           <a href="https://github.com/ranulfmeier/kage" target="_blank" class="text-stone-500 hover:text-stone-900 transition-colors">GitHub</a>
           <WalletButton />
@@ -1147,6 +1148,7 @@ onUnmounted(() => {
       </div>
       <div v-if="mobileMenuOpen" class="sm:hidden border-t border-stone-200 px-6 py-4 flex flex-col gap-3 text-xs tracking-widest uppercase text-stone-600">
         <RouterLink to="/docs" @click="mobileMenuOpen = false">Docs</RouterLink>
+        <RouterLink to="/agents" @click="mobileMenuOpen = false">Agents</RouterLink>
         <RouterLink to="/roadmap" @click="mobileMenuOpen = false">Roadmap</RouterLink>
         <a href="https://github.com/ranulfmeier/kage" target="_blank">GitHub</a>
         <div class="pt-2 border-t border-stone-200">

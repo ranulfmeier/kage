@@ -3,6 +3,7 @@ import Home from '../views/Home.vue';
 import Docs from '../views/Docs.vue';
 import Roadmap from '../views/Roadmap.vue';
 import Demo from '../views/Demo.vue';
+import Agents from '../views/Agents.vue';
 
 const routes = [
   {
@@ -14,6 +15,11 @@ const routes = [
     path: '/docs',
     name: 'Docs',
     component: Docs,
+  },
+  {
+    path: '/agents',
+    name: 'Agents',
+    component: Agents,
   },
   {
     path: '/roadmap',

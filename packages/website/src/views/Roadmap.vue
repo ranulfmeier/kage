@@ -136,6 +136,7 @@ const phases = [
 
         <nav class="hidden sm:flex items-center gap-6 text-sm">
           <RouterLink to="/docs" class="text-kage-500 hover:text-kage-800 transition-colors">Docs</RouterLink>
+          <RouterLink to="/agents" class="text-kage-500 hover:text-kage-800 transition-colors">Agents</RouterLink>
           <a href="https://github.com/ranulfmeier/kage" target="_blank" class="text-kage-500 hover:text-kage-800 transition-colors">GitHub</a>
         </nav>
       </div>
@@ -144,6 +145,7 @@ const phases = [
       <div v-if="mobileMenuOpen" class="sm:hidden border-t border-kage-100 bg-white">
         <nav class="px-4 py-4 flex flex-col gap-3">
           <RouterLink to="/docs" @click="mobileMenuOpen = false" class="text-kage-700 hover:text-kage-900 py-2">Docs</RouterLink>
+          <RouterLink to="/agents" @click="mobileMenuOpen = false" class="text-kage-700 hover:text-kage-900 py-2">Agents</RouterLink>
           <a href="https://github.com/ranulfmeier/kage" target="_blank" class="text-kage-700 hover:text-kage-900 py-2">GitHub</a>
         </nav>
       </div>

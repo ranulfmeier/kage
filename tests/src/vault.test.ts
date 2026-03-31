@@ -5,6 +5,7 @@ import {
   createVault,
   MemoryType,
   MemoryStorageAdapter,
+  LocalChainAdapter,
   KageConfig,
 } from "@kage/sdk";
 
@@ -26,7 +27,8 @@ describe("KageVault", () => {
     };
 
     const storage = new MemoryStorageAdapter();
-    vault = createVault(connection, config, ownerKeypair, storage);
+    const chainAdapter = new LocalChainAdapter(ownerKeypair.publicKey);
+    vault = createVault(connection, config, ownerKeypair, storage, { chainAdapter });
     await vault.initialize();
   });
 
@@ -42,8 +44,8 @@ describe("KageVault", () => {
     });
   });
 
-  describe("memory storage (on-chain — requires funded keypair)", () => {
-    it.skip("should store and recall memory", async () => {
+  describe("memory storage", () => {
+    it("should store and recall memory", async () => {
       const testData = { message: "Hello, Kage!" };
       const metadata = {
         tags: ["test", "greeting"],
@@ -58,6 +60,7 @@ describe("KageVault", () => {
 
       expect(storeResult.cid).toBeDefined();
       expect(storeResult.memoryId).toBeDefined();
+      expect(storeResult.txSignature).toBeDefined();
 
       const recalled = await vault.recallMemory(storeResult.cid);
       expect(recalled.data).toEqual(testData);
@@ -120,11 +123,13 @@ describe("KageVault", () => {
   describe("memory listing", () => {
     it("should return empty list for new vault", async () => {
       const newKeypair = Keypair.generate();
+      const newChainAdapter = new LocalChainAdapter(newKeypair.publicKey);
       const newVault = createVault(
         connection,
         config,
         newKeypair,
-        new MemoryStorageAdapter()
+        new MemoryStorageAdapter(),
+        { chainAdapter: newChainAdapter }
       );
       await newVault.initialize();
 

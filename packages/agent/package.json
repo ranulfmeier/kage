@@ -10,7 +10,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "lint": "eslint src/",
-    "test": "vitest"
+    "test": "echo 'no tests yet'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",

@@ -29,17 +29,13 @@ const VAULT_SEED = Buffer.from("vault");
 const MEMORY_SEED = Buffer.from("memory");
 const ACCESS_SEED = Buffer.from("access");
 
-/**
- * Storage adapter interface for IPFS/Arweave
- */
+// ── Storage Adapters ──────────────────────────────────────────────────────────
+
 export interface StorageAdapter {
   upload(data: EncryptedData): Promise<string>;
   download(cid: string): Promise<EncryptedData>;
 }
 
-/**
- * Simple in-memory storage adapter for development/testing
- */
 export class MemoryStorageAdapter implements StorageAdapter {
   private storage = new Map<string, EncryptedData>();
   private counter = 0;
@@ -59,9 +55,6 @@ export class MemoryStorageAdapter implements StorageAdapter {
   }
 }
 
-/**
- * IPFS storage adapter using HTTP gateway
- */
 export class IpfsStorageAdapter implements StorageAdapter {
   private gatewayUrl: string;
   private apiUrl: string;
@@ -100,282 +93,55 @@ export class IpfsStorageAdapter implements StorageAdapter {
   }
 }
 
+// ── Chain Adapter Interface ───────────────────────────────────────────────────
+
 /**
- * Kage Memory Vault - main SDK class
+ * On-chain adapter interface — abstracts Solana transaction layer
+ * so vault logic can be tested without a live network connection.
+ *
+ * Production: SolanaChainAdapter (real TXs, throws on failure)
+ * Unit tests: LocalChainAdapter  (in-memory, no network)
  */
-export class KageVault {
-  private connection: Connection;
-  private config: KageConfig;
-  private encryption: EncryptionEngine;
-  private storage: StorageAdapter;
-  private ownerKeypair: Keypair;
-  private viewingKey: ViewingKey | null = null;
-  private umbraClient: KageUmbraClient;
-  private umbraEnabled: boolean;
+export interface ChainAdapter {
+  storeMemory(cid: string, metadataHash: Uint8Array, memoryType: number, umbraProof?: string): Promise<string>;
+  grantAccess(grantee: PublicKey, permissions: number, expiresAt: number): Promise<string>;
+  revokeAccess(grantee: PublicKey): Promise<string>;
+  listMemoryEntries(): Promise<MemoryEntry[]>;
+  ensureVaultInitialized(): Promise<void>;
+}
 
-  constructor(
-    connection: Connection,
-    config: KageConfig,
-    ownerKeypair: Keypair,
-    storage?: StorageAdapter,
-    options?: { umbraEnabled?: boolean }
-  ) {
-    this.connection = connection;
-    this.config = config;
-    this.ownerKeypair = ownerKeypair;
-    this.encryption = createEncryptionEngine({
-      network: config.umbraNetwork,
-    });
-    this.storage = storage || new MemoryStorageAdapter();
-    this.umbraEnabled = options?.umbraEnabled ?? true;
-    this.umbraClient = createUmbraClient(ownerKeypair, {
-      network: config.umbraNetwork,
-      rpcUrl: config.rpcUrl,
-    });
-  }
+// ── Solana Chain Adapter ──────────────────────────────────────────────────────
 
-  /**
-   * Initialize the vault (must be called before other operations)
-   */
-  async initialize(): Promise<void> {
-    this.viewingKey = await this.encryption.generateViewingKey(
-      this.ownerKeypair
-    );
-
-    if (this.umbraEnabled) {
-      try {
-        await this.umbraClient.initialize();
-        await this.umbraClient.register();
-      } catch (err) {
-        console.warn("[Kage:Vault] Umbra initialization failed (continuing without privacy layer):", err);
-        this.umbraEnabled = false;
-      }
-    }
-  }
-
-  /**
-   * Get the vault PDA address
-   */
-  getVaultAddress(): PublicKey {
-    const [vaultPda] = PublicKey.findProgramAddressSync(
-      [VAULT_SEED, this.ownerKeypair.publicKey.toBuffer()],
-      this.config.programId
-    );
-    return vaultPda;
-  }
-
-  /**
-   * Get memory entry PDA address
-   */
-  getMemoryAddress(index: number): PublicKey {
-    const vaultPda = this.getVaultAddress();
-    const indexBuffer = Buffer.alloc(8);
-    indexBuffer.writeBigUInt64LE(BigInt(index));
-
-    const [memoryPda] = PublicKey.findProgramAddressSync(
-      [MEMORY_SEED, vaultPda.toBuffer(), indexBuffer],
-      this.config.programId
-    );
-    return memoryPda;
-  }
-
-  /**
-   * Get access grant PDA address
-   */
-  getAccessGrantAddress(grantee: PublicKey): PublicKey {
-    const vaultPda = this.getVaultAddress();
-    const [accessPda] = PublicKey.findProgramAddressSync(
-      [ACCESS_SEED, vaultPda.toBuffer(), grantee.toBuffer()],
-      this.config.programId
-    );
-    return accessPda;
-  }
-
-  /**
-   * Store a memory in the vault with optional Umbra shielded proof
-   */
-  async storeMemory(
-    data: unknown,
-    metadata: MemoryMetadata,
-    memoryType: MemoryType = MemoryType.Conversation
-  ): Promise<StoreResult> {
-    if (!this.viewingKey) {
-      throw new Error("Vault not initialized. Call initialize() first.");
-    }
-
-    const memoryContent: MemoryContent = { data, metadata };
-    const encrypted = await this.encryption.encrypt(
-      memoryContent,
-      this.viewingKey
-    );
-    const cid = await this.storage.upload(encrypted);
-    const metadataHash = await this.encryption.computeHash(metadata);
-    const memoryTypeValue = this.memoryTypeToValue(memoryType);
-
-    // Generate Umbra shielded proof if privacy layer is available
-    let umbraProof: string | undefined;
-    if (this.umbraEnabled && this.umbraClient.isInitialized) {
-      try {
-        umbraProof = await this.umbraClient.createMemoryProof(cid, metadataHash);
-        console.log(`[Kage:Vault] Umbra proof created for memory: ${cid}`);
-      } catch (err) {
-        console.warn("[Kage:Vault] Umbra proof generation failed:", err);
-      }
-    }
-
-    const txSignature = await this.sendStoreMemoryTransaction(
-      cid,
-      metadataHash,
-      memoryTypeValue,
-      umbraProof
-    );
-
-    const explorerUrl = `https://solscan.io/tx/${txSignature}?cluster=devnet`;
-
-    return {
-      memoryId: cid,
-      cid,
-      txSignature,
-      umbraProof,
-      explorerUrl,
-    };
-  }
-
-  /**
-   * Recall a memory from the vault
-   */
-  async recallMemory(cid: string): Promise<MemoryContent> {
-    if (!this.viewingKey) {
-      throw new Error("Vault not initialized. Call initialize() first.");
-    }
-
-    const encrypted = await this.storage.download(cid);
-    const decrypted = await this.encryption.decrypt(encrypted, this.viewingKey);
-
-    return decrypted as MemoryContent;
-  }
-
-  /**
-   * List all memory entries from on-chain data
-   */
-  async listMemories(): Promise<MemoryEntry[]> {
-    const vaultPda = this.getVaultAddress();
-    const vaultInfo = await this.connection.getAccountInfo(vaultPda);
-
-    if (!vaultInfo) {
-      return [];
-    }
-
-    const memoryCount = this.parseMemoryCount(vaultInfo.data);
-    const memories: MemoryEntry[] = [];
-
-    for (let i = 0; i < memoryCount; i++) {
-      const memoryPda = this.getMemoryAddress(i);
-      const memoryInfo = await this.connection.getAccountInfo(memoryPda);
-
-      if (memoryInfo) {
-        const entry = this.parseMemoryEntry(memoryInfo.data, i);
-        if (entry) {
-          memories.push(entry);
-        }
-      }
-    }
-
-    return memories;
-  }
-
-  /**
-   * Grant access to another user
-   */
-  async grantAccess(
-    grantee: PublicKey,
-    permissions: AccessPermissions,
-    expiresAt: number = 0
-  ): Promise<string> {
-    const permissionValue = this.permissionToValue(permissions);
-    return this.sendGrantAccessTransaction(
-      grantee,
-      permissionValue,
-      expiresAt
-    );
-  }
-
-  /**
-   * Revoke access from a user
-   */
-  async revokeAccess(grantee: PublicKey): Promise<string> {
-    return this.sendRevokeAccessTransaction(grantee);
-  }
-
-  private memoryTypeToValue(memoryType: MemoryType): number {
-    const mapping: Record<MemoryType, number> = {
-      [MemoryType.Conversation]: 0,
-      [MemoryType.Preference]: 1,
-      [MemoryType.Behavior]: 2,
-      [MemoryType.Task]: 3,
-      [MemoryType.Knowledge]: 4,
-    };
-    return mapping[memoryType];
-  }
-
-  private permissionToValue(permission: AccessPermissions): number {
-    const mapping: Record<AccessPermissions, number> = {
-      [AccessPermissions.Read]: 0,
-      [AccessPermissions.ReadWrite]: 1,
-      [AccessPermissions.Admin]: 2,
-    };
-    return mapping[permission];
-  }
-
-  private parseMemoryCount(data: Buffer): number {
-    return Number(data.readBigUInt64LE(40));
-  }
-
-  private parseMemoryEntry(data: Buffer, index: number): MemoryEntry | null {
-    try {
-      const vaultPubkey = new PublicKey(data.slice(8, 40));
-      const cidLength = data.readUInt32LE(56);
-      const cid = data.slice(60, 60 + cidLength).toString("utf-8");
-      const metadataHashStart = 60 + cidLength;
-      const metadataHash = data
-        .slice(metadataHashStart, metadataHashStart + 32)
-        .toString("hex");
-      const memoryTypeOffset = metadataHashStart + 32;
-      const memoryType = data.readUInt8(memoryTypeOffset);
-      const createdAt = Number(
-        data.readBigInt64LE(memoryTypeOffset + 1)
-      );
-
-      return {
-        id: `${index}`,
-        cid,
-        metadataHash,
-        createdAt,
-        memoryType: this.valueToMemoryType(memoryType),
-        owner: vaultPubkey,
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  private valueToMemoryType(value: number): MemoryType {
-    const mapping: Record<number, MemoryType> = {
-      0: MemoryType.Conversation,
-      1: MemoryType.Preference,
-      2: MemoryType.Behavior,
-      3: MemoryType.Task,
-      4: MemoryType.Knowledge,
-    };
-    return mapping[value] || MemoryType.Knowledge;
-  }
-
+export class SolanaChainAdapter implements ChainAdapter {
   private static readonly DISC_INIT_VAULT    = Buffer.from([48,191,163,44,71,129,63,164]);
   private static readonly DISC_STORE_MEMORY  = Buffer.from([168,103,88,240,93,185,30,235]);
   private static readonly DISC_GRANT_ACCESS  = Buffer.from([66,88,87,113,39,22,27,165]);
   private static readonly DISC_REVOKE_ACCESS = Buffer.from([106,128,38,169,103,238,102,147]);
 
-  private async ensureVaultInitialized(): Promise<void> {
+  constructor(
+    private readonly connection: Connection,
+    private readonly config: KageConfig,
+    private readonly ownerKeypair: Keypair,
+  ) {}
+
+  getVaultAddress(): PublicKey {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [VAULT_SEED, this.ownerKeypair.publicKey.toBuffer()],
+      this.config.programId
+    );
+    return pda;
+  }
+
+  getAccessGrantAddress(grantee: PublicKey): PublicKey {
+    const vaultPda = this.getVaultAddress();
+    const [pda] = PublicKey.findProgramAddressSync(
+      [ACCESS_SEED, vaultPda.toBuffer(), grantee.toBuffer()],
+      this.config.programId
+    );
+    return pda;
+  }
+
+  async ensureVaultInitialized(): Promise<void> {
     const vaultPda = this.getVaultAddress();
     const info = await this.connection.getAccountInfo(vaultPda);
     if (info) return;
@@ -389,7 +155,7 @@ export class KageVault {
         { pubkey: this.ownerKeypair.publicKey,       isSigner: true,  isWritable: true  },
         { pubkey: SystemProgram.programId,           isSigner: false, isWritable: false },
       ],
-      data: KageVault.DISC_INIT_VAULT,
+      data: SolanaChainAdapter.DISC_INIT_VAULT,
     });
 
     const tx = new Transaction().add(ix);
@@ -402,15 +168,14 @@ export class KageVault {
     console.log(`[Kage] Vault initialized on-chain: ${sig}`);
   }
 
-  private async sendStoreMemoryTransaction(
+  async storeMemory(
     cid: string,
     metadataHash: Uint8Array,
     memoryType: number,
     umbraProof?: string
   ): Promise<string> {
-    const zkruneFlag = ", zkrune=✓";
     console.log(
-      `[Kage] Storing memory: cid=${cid}, type=${memoryType}${umbraProof ? ", umbra=✓" : ""}${zkruneFlag}`
+      `[Kage] Storing memory: cid=${cid}, type=${memoryType}${umbraProof ? ", umbra=✓" : ""}, zkrune=✓`
     );
 
     try {
@@ -427,8 +192,6 @@ export class KageVault {
         this.config.programId
       );
 
-      // Encode store_memory instruction data manually
-      // discriminator (8) + cid string (4 len + bytes) + metadata_hash (32) + memory_type (1)
       const cidBytes = Buffer.from(cid, "utf8");
       const hash32 = new Uint8Array(32);
       hash32.set(metadataHash.slice(0, Math.min(32, metadataHash.length)));
@@ -436,7 +199,7 @@ export class KageVault {
       const dataLen = 8 + 4 + cidBytes.length + 32 + 1;
       const data = Buffer.alloc(dataLen);
       let offset = 0;
-      KageVault.DISC_STORE_MEMORY.copy(data, offset); offset += 8;
+      SolanaChainAdapter.DISC_STORE_MEMORY.copy(data, offset); offset += 8;
       data.writeUInt32LE(cidBytes.length, offset); offset += 4;
       cidBytes.copy(data, offset); offset += cidBytes.length;
       Buffer.from(hash32).copy(data, offset); offset += 32;
@@ -468,18 +231,7 @@ export class KageVault {
     }
   }
 
-  /**
-   * Get the underlying Umbra client for direct privacy layer access
-   */
-  getUmbraClient(): KageUmbraClient {
-    return this.umbraClient;
-  }
-
-  private async sendGrantAccessTransaction(
-    grantee: PublicKey,
-    permissions: number,
-    expiresAt: number
-  ): Promise<string> {
+  async grantAccess(grantee: PublicKey, permissions: number, expiresAt: number): Promise<string> {
     await this.ensureVaultInitialized();
 
     const vaultPda = this.getVaultAddress();
@@ -487,7 +239,7 @@ export class KageVault {
 
     const data = Buffer.alloc(8 + 32 + 1 + 8);
     let offset = 0;
-    KageVault.DISC_GRANT_ACCESS.copy(data, offset); offset += 8;
+    SolanaChainAdapter.DISC_GRANT_ACCESS.copy(data, offset); offset += 8;
     grantee.toBuffer().copy(data, offset); offset += 32;
     data.writeUInt8(permissions, offset); offset += 1;
     data.writeBigInt64LE(BigInt(expiresAt), offset);
@@ -515,12 +267,12 @@ export class KageVault {
     return txSig;
   }
 
-  private async sendRevokeAccessTransaction(grantee: PublicKey): Promise<string> {
+  async revokeAccess(grantee: PublicKey): Promise<string> {
     const vaultPda = this.getVaultAddress();
     const accessGrantPda = this.getAccessGrantAddress(grantee);
 
     const data = Buffer.alloc(8 + 32);
-    KageVault.DISC_REVOKE_ACCESS.copy(data, 0);
+    SolanaChainAdapter.DISC_REVOKE_ACCESS.copy(data, 0);
     grantee.toBuffer().copy(data, 8);
 
     const ix = new TransactionInstruction({
@@ -545,17 +297,307 @@ export class KageVault {
     console.log(`[Kage] Access revoked on-chain from ${grantee.toBase58()}: ${txSig}`);
     return txSig;
   }
+
+  async listMemoryEntries(): Promise<MemoryEntry[]> {
+    const vaultPda = this.getVaultAddress();
+    const vaultInfo = await this.connection.getAccountInfo(vaultPda);
+
+    if (!vaultInfo) return [];
+
+    const memoryCount = Number(vaultInfo.data.readBigUInt64LE(40));
+    const memories: MemoryEntry[] = [];
+
+    for (let i = 0; i < memoryCount; i++) {
+      const indexBuffer = Buffer.alloc(8);
+      indexBuffer.writeBigUInt64LE(BigInt(i));
+      const [memoryPda] = PublicKey.findProgramAddressSync(
+        [MEMORY_SEED, vaultPda.toBuffer(), indexBuffer],
+        this.config.programId
+      );
+      const memoryInfo = await this.connection.getAccountInfo(memoryPda);
+
+      if (memoryInfo) {
+        try {
+          const vaultPubkey = new PublicKey(memoryInfo.data.slice(8, 40));
+          const cidLength = memoryInfo.data.readUInt32LE(56);
+          const cid = memoryInfo.data.slice(60, 60 + cidLength).toString("utf-8");
+          const metadataHashStart = 60 + cidLength;
+          const metadataHash = memoryInfo.data
+            .slice(metadataHashStart, metadataHashStart + 32)
+            .toString("hex");
+          const memoryTypeOffset = metadataHashStart + 32;
+          const mt = memoryInfo.data.readUInt8(memoryTypeOffset);
+          const createdAt = Number(memoryInfo.data.readBigInt64LE(memoryTypeOffset + 1));
+
+          const typeMap: Record<number, MemoryType> = {
+            0: MemoryType.Conversation, 1: MemoryType.Preference,
+            2: MemoryType.Behavior, 3: MemoryType.Task, 4: MemoryType.Knowledge,
+          };
+
+          memories.push({
+            id: `${i}`, cid, metadataHash, createdAt,
+            memoryType: typeMap[mt] || MemoryType.Knowledge,
+            owner: vaultPubkey,
+          });
+        } catch { /* skip malformed entries */ }
+      }
+    }
+
+    return memories;
+  }
+}
+
+// ── Local Chain Adapter ───────────────────────────────────────────────────────
+
+/**
+ * In-memory chain adapter for unit tests and offline development.
+ * Tracks commitments locally without touching Solana.
+ */
+export class LocalChainAdapter implements ChainAdapter {
+  private entries: MemoryEntry[] = [];
+  private counter = 0;
+  private ownerPubkey: PublicKey;
+
+  constructor(ownerPubkey: PublicKey) {
+    this.ownerPubkey = ownerPubkey;
+  }
+
+  async ensureVaultInitialized(): Promise<void> { /* no-op */ }
+
+  async storeMemory(
+    cid: string,
+    _metadataHash: Uint8Array,
+    memoryType: number,
+    _umbraProof?: string
+  ): Promise<string> {
+    const sig = `local_${Date.now()}_${this.counter++}`;
+
+    const typeMap: Record<number, MemoryType> = {
+      0: MemoryType.Conversation, 1: MemoryType.Preference,
+      2: MemoryType.Behavior, 3: MemoryType.Task, 4: MemoryType.Knowledge,
+    };
+
+    this.entries.push({
+      id: `${this.entries.length}`,
+      cid,
+      metadataHash: "",
+      createdAt: Date.now(),
+      memoryType: typeMap[memoryType] || MemoryType.Knowledge,
+      owner: this.ownerPubkey,
+    });
+
+    return sig;
+  }
+
+  async grantAccess(_grantee: PublicKey, _permissions: number, _expiresAt: number): Promise<string> {
+    return `local_grant_${Date.now()}_${this.counter++}`;
+  }
+
+  async revokeAccess(_grantee: PublicKey): Promise<string> {
+    return `local_revoke_${Date.now()}_${this.counter++}`;
+  }
+
+  async listMemoryEntries(): Promise<MemoryEntry[]> {
+    return [...this.entries];
+  }
+}
+
+// ── KageVault ─────────────────────────────────────────────────────────────────
+
+/**
+ * Kage Memory Vault - main SDK class.
+ *
+ * Delegates on-chain operations to ChainAdapter:
+ * - SolanaChainAdapter for production (real TXs, throws on failure)
+ * - LocalChainAdapter for unit tests (in-memory, no network)
+ */
+export class KageVault {
+  private connection: Connection;
+  private config: KageConfig;
+  private encryption: EncryptionEngine;
+  private storage: StorageAdapter;
+  private chain: ChainAdapter;
+  private ownerKeypair: Keypair;
+  private viewingKey: ViewingKey | null = null;
+  private umbraClient: KageUmbraClient;
+  private umbraEnabled: boolean;
+
+  constructor(
+    connection: Connection,
+    config: KageConfig,
+    ownerKeypair: Keypair,
+    storage?: StorageAdapter,
+    options?: { umbraEnabled?: boolean; chainAdapter?: ChainAdapter }
+  ) {
+    this.connection = connection;
+    this.config = config;
+    this.ownerKeypair = ownerKeypair;
+    this.encryption = createEncryptionEngine({
+      network: config.umbraNetwork,
+    });
+    this.storage = storage || new MemoryStorageAdapter();
+    this.umbraEnabled = options?.umbraEnabled ?? true;
+    this.umbraClient = createUmbraClient(ownerKeypair, {
+      network: config.umbraNetwork,
+      rpcUrl: config.rpcUrl,
+    });
+    this.chain = options?.chainAdapter
+      ?? new SolanaChainAdapter(connection, config, ownerKeypair);
+  }
+
+  async initialize(): Promise<void> {
+    this.viewingKey = await this.encryption.generateViewingKey(
+      this.ownerKeypair
+    );
+
+    if (this.umbraEnabled) {
+      try {
+        await this.umbraClient.initialize();
+        await this.umbraClient.register();
+      } catch (err) {
+        console.warn("[Kage:Vault] Umbra initialization failed (continuing without privacy layer):", err);
+        this.umbraEnabled = false;
+      }
+    }
+  }
+
+  getVaultAddress(): PublicKey {
+    const [vaultPda] = PublicKey.findProgramAddressSync(
+      [VAULT_SEED, this.ownerKeypair.publicKey.toBuffer()],
+      this.config.programId
+    );
+    return vaultPda;
+  }
+
+  getMemoryAddress(index: number): PublicKey {
+    const vaultPda = this.getVaultAddress();
+    const indexBuffer = Buffer.alloc(8);
+    indexBuffer.writeBigUInt64LE(BigInt(index));
+
+    const [memoryPda] = PublicKey.findProgramAddressSync(
+      [MEMORY_SEED, vaultPda.toBuffer(), indexBuffer],
+      this.config.programId
+    );
+    return memoryPda;
+  }
+
+  getAccessGrantAddress(grantee: PublicKey): PublicKey {
+    const vaultPda = this.getVaultAddress();
+    const [accessPda] = PublicKey.findProgramAddressSync(
+      [ACCESS_SEED, vaultPda.toBuffer(), grantee.toBuffer()],
+      this.config.programId
+    );
+    return accessPda;
+  }
+
+  async storeMemory(
+    data: unknown,
+    metadata: MemoryMetadata,
+    memoryType: MemoryType = MemoryType.Conversation
+  ): Promise<StoreResult> {
+    if (!this.viewingKey) {
+      throw new Error("Vault not initialized. Call initialize() first.");
+    }
+
+    const memoryContent: MemoryContent = { data, metadata };
+    const encrypted = await this.encryption.encrypt(
+      memoryContent,
+      this.viewingKey
+    );
+    const cid = await this.storage.upload(encrypted);
+    const metadataHash = await this.encryption.computeHash(metadata);
+    const memoryTypeValue = this.memoryTypeToValue(memoryType);
+
+    let umbraProof: string | undefined;
+    if (this.umbraEnabled && this.umbraClient.isInitialized) {
+      try {
+        umbraProof = await this.umbraClient.createMemoryProof(cid, metadataHash);
+        console.log(`[Kage:Vault] Umbra proof created for memory: ${cid}`);
+      } catch (err) {
+        console.warn("[Kage:Vault] Umbra proof generation failed:", err);
+      }
+    }
+
+    const txSignature = await this.chain.storeMemory(
+      cid, metadataHash, memoryTypeValue, umbraProof
+    );
+
+    const explorerUrl = `https://solscan.io/tx/${txSignature}?cluster=devnet`;
+
+    return {
+      memoryId: cid,
+      cid,
+      txSignature,
+      umbraProof,
+      explorerUrl,
+    };
+  }
+
+  async recallMemory(cid: string): Promise<MemoryContent> {
+    if (!this.viewingKey) {
+      throw new Error("Vault not initialized. Call initialize() first.");
+    }
+
+    const encrypted = await this.storage.download(cid);
+    const decrypted = await this.encryption.decrypt(encrypted, this.viewingKey);
+
+    return decrypted as MemoryContent;
+  }
+
+  async listMemories(): Promise<MemoryEntry[]> {
+    return this.chain.listMemoryEntries();
+  }
+
+  async grantAccess(
+    grantee: PublicKey,
+    permissions: AccessPermissions,
+    expiresAt: number = 0
+  ): Promise<string> {
+    const permissionValue = this.permissionToValue(permissions);
+    return this.chain.grantAccess(grantee, permissionValue, expiresAt);
+  }
+
+  async revokeAccess(grantee: PublicKey): Promise<string> {
+    return this.chain.revokeAccess(grantee);
+  }
+
+  getUmbraClient(): KageUmbraClient {
+    return this.umbraClient;
+  }
+
+  private memoryTypeToValue(memoryType: MemoryType): number {
+    const mapping: Record<MemoryType, number> = {
+      [MemoryType.Conversation]: 0,
+      [MemoryType.Preference]: 1,
+      [MemoryType.Behavior]: 2,
+      [MemoryType.Task]: 3,
+      [MemoryType.Knowledge]: 4,
+    };
+    return mapping[memoryType];
+  }
+
+  private permissionToValue(permission: AccessPermissions): number {
+    const mapping: Record<AccessPermissions, number> = {
+      [AccessPermissions.Read]: 0,
+      [AccessPermissions.ReadWrite]: 1,
+      [AccessPermissions.Admin]: 2,
+    };
+    return mapping[permission];
+  }
 }
 
 /**
- * Create a new Kage vault instance
+ * Create a new Kage vault instance.
+ *
+ * Default: SolanaChainAdapter (real on-chain transactions).
+ * Override via options.chainAdapter (e.g. LocalChainAdapter for tests).
  */
 export function createVault(
   connection: Connection,
   config: KageConfig,
   ownerKeypair: Keypair,
   storage?: StorageAdapter,
-  options?: { umbraEnabled?: boolean }
+  options?: { umbraEnabled?: boolean; chainAdapter?: ChainAdapter }
 ): KageVault {
   return new KageVault(connection, config, ownerKeypair, storage, options);
 }

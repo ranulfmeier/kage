@@ -9,6 +9,8 @@ import {
   MemoryEntry,
   ArweaveStorageAdapter,
   MemoryStorageAdapter,
+  LocalChainAdapter,
+  ChainAdapter,
 } from "@kage/sdk";
 
 /**
@@ -25,6 +27,8 @@ export interface KageMemoryPluginConfig {
   umbraNetwork: "devnet" | "mainnet";
   /** Storage backend: "memory" (default dev) | "arweave" (permanent) */
   storageBackend?: StorageBackend;
+  /** Chain mode: "solana" (default, real TXs) | "local" (in-memory, for tests) */
+  chainMode?: "solana" | "local";
 }
 
 export interface MemoryAction {
@@ -66,13 +70,17 @@ export class KageMemoryPlugin {
       umbraNetwork: this.config.umbraNetwork,
     };
 
-    // Select storage backend
     const backend = this.config.storageBackend ?? "memory";
     const storage = backend === "arweave"
       ? new ArweaveStorageAdapter({ keypair, rpcUrl: this.config.rpcUrl, network: this.config.umbraNetwork })
       : new MemoryStorageAdapter();
 
-    this.vault = createVault(connection, kageConfig, keypair, storage);
+    const chainAdapter: ChainAdapter | undefined =
+      this.config.chainMode === "local"
+        ? new LocalChainAdapter(keypair.publicKey)
+        : undefined;
+
+    this.vault = createVault(connection, kageConfig, keypair, storage, { chainAdapter });
     await this.vault.initialize();
     this.initialized = true;
 

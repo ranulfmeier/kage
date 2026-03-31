@@ -67,7 +67,7 @@ const tiers = [
         <!-- Mobile menu button -->
         <button 
           @click="toggleMobileMenu"
-          class="md:hidden p-2 rounded-lg transition-colors"
+          class="lg:hidden p-2 rounded-lg transition-colors"
           :class="isScrolled || mobileMenuOpen ? 'text-kage-700 hover:bg-kage-100' : 'text-kage-600 hover:bg-kage-100/50'"
         >
           <svg v-if="!mobileMenuOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -79,13 +79,20 @@ const tiers = [
         </button>
 
         <!-- Desktop nav -->
-        <nav class="hidden md:flex items-center gap-8">
+        <nav class="hidden lg:flex items-center gap-6">
           <RouterLink 
             to="/docs" 
             class="text-sm font-medium transition-colors duration-300"
             :class="isScrolled ? 'text-kage-600 hover:text-kage-900' : 'text-kage-500 hover:text-kage-800'"
           >
             Docs
+          </RouterLink>
+          <RouterLink 
+            to="/agents" 
+            class="text-sm font-medium transition-colors duration-300"
+            :class="isScrolled ? 'text-kage-600 hover:text-kage-900' : 'text-kage-500 hover:text-kage-800'"
+          >
+            Agents
           </RouterLink>
           <RouterLink 
             to="/roadmap" 
@@ -130,7 +137,7 @@ const tiers = [
       <!-- Mobile menu -->
       <div 
         v-if="mobileMenuOpen"
-        class="md:hidden border-t border-kage-100 bg-white/95 backdrop-blur-md"
+        class="lg:hidden border-t border-kage-100 bg-white/95 backdrop-blur-md"
       >
         <nav class="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-4">
           <RouterLink 
@@ -139,6 +146,13 @@ const tiers = [
             class="text-base font-medium text-kage-700 hover:text-kage-900 py-2"
           >
             Docs
+          </RouterLink>
+          <RouterLink 
+            to="/agents" 
+            @click="closeMobileMenu"
+            class="text-base font-medium text-kage-700 hover:text-kage-900 py-2"
+          >
+            Agents
           </RouterLink>
           <RouterLink 
             to="/roadmap" 

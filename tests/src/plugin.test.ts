@@ -15,6 +15,7 @@ describe("KageMemoryPlugin", () => {
     programId: Keypair.generate().publicKey.toBase58(),
     ipfsGateway: "https://ipfs.io",
     umbraNetwork: "devnet",
+    chainMode: "local",
   };
 
   beforeAll(async () => {
