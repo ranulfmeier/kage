@@ -238,13 +238,34 @@ class KageAsyncClient:
         )
 
     async def store(self, text: str) -> ChatResponse:
-        """Shorthand: ask the agent to remember something."""
-        return await self.chat(f"Remember: {text}")
+        """Store a memory via HTTP POST /chat (no WebSocket needed)."""
+        return await self.chat_http(f"Remember: {text}")
 
     async def recall(self, query: str = "") -> ChatResponse:
-        """Shorthand: recall memories matching the query."""
+        """Recall memories via HTTP POST /chat (no WebSocket needed)."""
         prompt = f"Recall: {query}" if query else "List all my memories"
-        return await self.chat(prompt)
+        return await self.chat_http(prompt)
+
+    async def chat_http(self, message: str, *, deep_think: bool = False) -> ChatResponse:
+        """Send a chat via HTTP POST /chat — simpler alternative to WebSocket."""
+        r = await self._http_client().post(
+            "/chat",
+            json={"message": message, "deep_think": deep_think},
+        )
+        r.raise_for_status()
+        data = r.json()
+        proof_data = data.get("proof")
+        proof = StoreProof(
+            cid=proof_data["cid"],
+            content_hash=proof_data.get("hash", ""),
+            tx_signature=proof_data.get("txSignature"),
+        ) if proof_data else None
+        return ChatResponse(
+            text=data.get("reply", ""),
+            proof=proof,
+            reasoning=None,
+            reasoning_steps=[],
+        )
 
     async def list_memories(self) -> list[Memory]:
         """Fetch the raw memory index from the vault."""

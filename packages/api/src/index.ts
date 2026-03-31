@@ -169,6 +169,30 @@ app.get("/memories", async (_req, res) => {
   }
 });
 
+app.post("/chat", async (req, res) => {
+  try {
+    const { message, deep_think } = req.body;
+    if (!message) return res.status(400).json({ error: "message required" });
+
+    const agent = await getAgent();
+    const reply = await agent.chat(message, { deepThink: !!deep_think });
+    const reasoning = agent.getReasoningTrace();
+
+    res.json({
+      reply: reply.text,
+      proof: reply.proof ? {
+        cid: reply.proof.cid,
+        hash: reply.proof.contentHash,
+        txSignature: reply.proof.txSignature,
+      } : null,
+      reasoning: reasoning.length > 0 ? reasoning[reasoning.length - 1] : null,
+      memories: (await agent.listMemories()).length,
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 app.get("/agent/x25519", async (_req, res) => {
   try {
     const agent = await getAgent();
