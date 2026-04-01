@@ -378,9 +378,9 @@ const featureMatrix = [
                 class="inline-flex items-center gap-2 px-6 py-3 bg-accent-500 text-white rounded-lg font-medium hover:bg-accent-600 transition-colors">
                 Try Live Demo
               </RouterLink>
-              <RouterLink to="/docs"
+              <RouterLink to="/quickstart"
                 class="inline-flex items-center gap-2 px-6 py-3 border border-kage-600 text-kage-300 rounded-lg font-medium hover:bg-kage-800 transition-colors">
-                Read the Docs
+                Quickstart Guide
               </RouterLink>
             </div>
           </div>

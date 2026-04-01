@@ -240,8 +240,8 @@ const tiers = [
             <RouterLink to="/demo" class="btn-primary text-base sm:text-lg text-center">
               Try Live Demo
             </RouterLink>
-            <RouterLink to="/docs" class="btn-secondary text-base sm:text-lg text-center">
-              Documentation
+            <RouterLink to="/quickstart" class="btn-secondary text-base sm:text-lg text-center">
+              Quickstart Guide
             </RouterLink>
           </div>
         </div>

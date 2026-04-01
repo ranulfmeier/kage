@@ -4,12 +4,18 @@ import Docs from '../views/Docs.vue';
 import Roadmap from '../views/Roadmap.vue';
 import Demo from '../views/Demo.vue';
 import Agents from '../views/Agents.vue';
+import Quickstart from '../views/Quickstart.vue';
 
 const routes = [
   {
     path: '/',
     name: 'Home',
     component: Home,
+  },
+  {
+    path: '/quickstart',
+    name: 'Quickstart',
+    component: Quickstart,
   },
   {
     path: '/docs',
