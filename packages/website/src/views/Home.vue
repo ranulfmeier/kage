@@ -80,56 +80,27 @@ const tiers = [
 
         <!-- Desktop nav -->
         <nav class="hidden lg:flex items-center gap-6">
-          <RouterLink 
-            to="/docs" 
-            class="text-sm font-medium transition-colors duration-300"
-            :class="isScrolled ? 'text-kage-600 hover:text-kage-900' : 'text-kage-500 hover:text-kage-800'"
-          >
+          <RouterLink to="/docs" class="text-sm font-medium transition-colors duration-300"
+            :class="isScrolled ? 'text-kage-600 hover:text-kage-900' : 'text-kage-500 hover:text-kage-800'">
             Docs
           </RouterLink>
-          <RouterLink 
-            to="/agents" 
-            class="text-sm font-medium transition-colors duration-300"
-            :class="isScrolled ? 'text-kage-600 hover:text-kage-900' : 'text-kage-500 hover:text-kage-800'"
-          >
+          <RouterLink to="/agents" class="text-sm font-medium transition-colors duration-300"
+            :class="isScrolled ? 'text-kage-600 hover:text-kage-900' : 'text-kage-500 hover:text-kage-800'">
             Agents
           </RouterLink>
-          <RouterLink 
-            to="/roadmap" 
-            class="text-sm font-medium transition-colors duration-300"
-            :class="isScrolled ? 'text-kage-600 hover:text-kage-900' : 'text-kage-500 hover:text-kage-800'"
-          >
-            Roadmap
+          <RouterLink to="/marketplace" class="text-sm font-medium transition-colors duration-300"
+            :class="isScrolled ? 'text-kage-600 hover:text-kage-900' : 'text-kage-500 hover:text-kage-800'">
+            Marketplace
           </RouterLink>
-          <a 
-            href="https://github.com/ranulfmeier/kage" 
-            target="_blank"
-            class="text-sm font-medium transition-colors duration-300"
-            :class="isScrolled ? 'text-kage-600 hover:text-kage-900' : 'text-kage-500 hover:text-kage-800'"
-          >
+          <a href="https://github.com/ranulfmeier/kage" target="_blank" class="text-sm font-medium transition-colors duration-300"
+            :class="isScrolled ? 'text-kage-600 hover:text-kage-900' : 'text-kage-500 hover:text-kage-800'">
             GitHub
           </a>
-          <RouterLink
-            to="/demo"
-            class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300"
-            :class="isScrolled 
-              ? 'bg-kage-900 text-white hover:bg-kage-800' 
-              : 'bg-kage-800/10 text-kage-700 hover:bg-kage-800/20'"
-          >
+          <RouterLink to="/demo"
+            class="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300"
+            :class="isScrolled ? 'bg-kage-900 text-white hover:bg-kage-800' : 'bg-kage-800/10 text-kage-700 hover:bg-kage-800/20'">
             Try Demo
           </RouterLink>
-          <a 
-            href="https://x.com/kage_agent" 
-            target="_blank"
-            class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300"
-            :class="isScrolled 
-              ? 'bg-kage-900 text-white hover:bg-kage-800' 
-              : 'bg-kage-800/10 text-kage-700 hover:bg-kage-800/20'"
-          >
-            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-            </svg>
-          </a>
           <WalletButton />
         </nav>
       </div>
@@ -153,6 +124,13 @@ const tiers = [
             class="text-base font-medium text-kage-700 hover:text-kage-900 py-2"
           >
             Agents
+          </RouterLink>
+          <RouterLink 
+            to="/marketplace" 
+            @click="closeMobileMenu"
+            class="text-base font-medium text-kage-700 hover:text-kage-900 py-2"
+          >
+            Marketplace
           </RouterLink>
           <RouterLink 
             to="/roadmap" 

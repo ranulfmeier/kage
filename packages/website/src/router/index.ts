@@ -5,6 +5,7 @@ import Roadmap from '../views/Roadmap.vue';
 import Demo from '../views/Demo.vue';
 import Agents from '../views/Agents.vue';
 import Quickstart from '../views/Quickstart.vue';
+import Marketplace from '../views/Marketplace.vue';
 
 const routes = [
   {
@@ -26,6 +27,11 @@ const routes = [
     path: '/agents',
     name: 'Agents',
     component: Agents,
+  },
+  {
+    path: '/marketplace',
+    name: 'Marketplace',
+    component: Marketplace,
   },
   {
     path: '/roadmap',
