@@ -22,6 +22,10 @@ const PORT = process.env.PORT || 3002;
 const KAGE_PROGRAM_ID =
   process.env.KAGE_PROGRAM_ID || "ASK5m43oRE67ipfwuBbagVaiMQpFKYRTZNsvZXUfBtRp";
 
+// Test mode: import the module without bootstrapping (no LLM provider check,
+// no HTTP listen, no auto-init). Tests can then mount `app` via supertest.
+const IS_TEST_MODE = process.env.KAGE_API_TEST_MODE === "1";
+
 function buildLLMProvider(): LLMProvider {
   const providerName = (process.env.LLM_PROVIDER ?? "claude").toLowerCase();
 
@@ -48,8 +52,16 @@ function buildLLMProvider(): LLMProvider {
   });
 }
 
-const llmProvider = buildLLMProvider();
-console.log(`[Kage:API] LLM provider: ${llmProvider.name} / ${llmProvider.model}`);
+const llmProvider: LLMProvider = IS_TEST_MODE
+  ? ({
+      name: "test",
+      model: "test",
+      chat: async () => ({ text: "" }),
+    } as LLMProvider)
+  : buildLLMProvider();
+if (!IS_TEST_MODE) {
+  console.log(`[Kage:API] LLM provider: ${llmProvider.name} / ${llmProvider.model}`);
+}
 
 function loadOrCreateKeypair(): Keypair {
   const keypairPath = path.join(__dirname, "../agent-keypair.json");
@@ -86,7 +98,7 @@ async function ensureDevnetSol(keypair: Keypair): Promise<void> {
   }
 }
 
-const app = express();
+const app: express.Express = express();
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
@@ -175,17 +187,16 @@ app.post("/chat", async (req, res) => {
     if (!message) return res.status(400).json({ error: "message required" });
 
     const agent = await getAgent();
-    const reply = await agent.chat(message, { deepThink: !!deep_think });
-    const reasoning = agent.getReasoningTrace();
+    const reply = await agent.chat(message, !!deep_think);
+    const traces = agent.getAllReasoningTraces();
 
     res.json({
       reply: reply.text,
       proof: reply.proof ? {
         cid: reply.proof.cid,
-        hash: reply.proof.contentHash,
         txSignature: reply.proof.txSignature,
       } : null,
-      reasoning: reasoning.length > 0 ? reasoning[reasoning.length - 1] : null,
+      reasoning: reply.reasoning ?? (traces.length > 0 ? traces[traces.length - 1] : null),
       memories: (await agent.listMemories()).length,
     });
   } catch (err) {
@@ -512,11 +523,11 @@ app.get("/did/credentials", async (_req, res) => {
 app.post("/did/credential/issue", async (req, res) => {
   try {
     const agent = await getAgent();
-    const { subjectDID, type, claim, expiresInMs } = req.body;
+    const { subjectDID, type, claim, expiresInSec } = req.body;
     if (!subjectDID || !type || !claim) {
       return res.status(400).json({ error: "subjectDID, type, and claim are required" });
     }
-    const credential = await agent.issueCredential({ subjectDID, type, claim, expiresInMs });
+    const credential = await agent.issueCredential({ subjectDID, type, claim, expiresInSec });
     res.json({ credential });
   } catch (err) {
     res.status(500).json({ error: String(err) });
@@ -786,8 +797,10 @@ async function getAgent(): Promise<KageAgent> {
   return sharedAgent;
 }
 
-// Pre-initialize agent on startup
-getAgent().catch((err) => console.error("[Kage:API] Agent init failed:", err));
+// Pre-initialize agent on startup (skipped in test mode)
+if (!IS_TEST_MODE) {
+  getAgent().catch((err) => console.error("[Kage:API] Agent init failed:", err));
+}
 
 wss.on("connection", async (ws: WebSocket) => {
   console.log("[Kage:API] New WebSocket connection");
@@ -1116,7 +1129,7 @@ wss.on("connection", async (ws: WebSocket) => {
       }
 
       if (msg.type === "did_issue_credential") {
-        const { subjectDID, credType, claim, expiresInMs } = msg;
+        const { subjectDID, credType, claim, expiresInSec } = msg;
         if (!subjectDID || !credType || !claim) {
           ws.send(JSON.stringify({ type: "error", message: "subjectDID, credType, and claim are required" }));
           return;
@@ -1126,7 +1139,7 @@ wss.on("connection", async (ws: WebSocket) => {
             subjectDID,
             type: credType,
             claim,
-            expiresInMs,
+            expiresInSec,
           });
           ws.send(JSON.stringify({ type: "credential_issued", credential }));
         } catch (err) {
@@ -1434,7 +1447,11 @@ app.get("/marketplace/stats", (_req, res) => {
   });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`[Kage:API] Server running on http://localhost:${PORT}`);
-  console.log(`[Kage:API] WebSocket ready on ws://localhost:${PORT}`);
-});
+if (!IS_TEST_MODE) {
+  httpServer.listen(PORT, () => {
+    console.log(`[Kage:API] Server running on http://localhost:${PORT}`);
+    console.log(`[Kage:API] WebSocket ready on ws://localhost:${PORT}`);
+  });
+}
+
+export { app, httpServer };

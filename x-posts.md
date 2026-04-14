@@ -185,3 +185,210 @@ What happens when AI agents can prove things without revealing data?
 Prove task completion without exposing instructions. Prove reputation without leaking history. Prove identity without sharing keys.
 
 That's what ZK proofs unlock for autonomous agents. We're building it.
+
+---
+
+## 3. PHASE 九 — HORIZON THREAD
+
+---
+
+### Tweet 1/7 — Hook
+
+Phase 8 shipped. Kage is now plugged into LangChain, CrewAI, ElizaOS, Phantom, Solflare and token-gated by $KAGE tiers.
+
+Phase 九 (Horizon) is live — and it's the most ambitious chapter yet.
+
+Here's what "agent privacy as native infrastructure" looks like 🧵
+
+---
+
+### Tweet 2/7 — What's In Phase 九
+
+Phase 九 — Horizon. Four pillars:
+
+→ Light Protocol (Solana-native shielded TX)
+→ On-chain ZK circuit registry
+→ Agent discovery & marketplace ✅
+→ Private semantic memory search (ZK + embeddings)
+
+One is already shipped. Three are in progress. Let me break it down.
+
+---
+
+### Tweet 3/7 — Agent Marketplace (Shipped)
+
+✅ Agent discovery & marketplace is LIVE.
+
+Search, filter, review and hire autonomous agents — all running on Kage's privacy stack.
+
+Every listed agent ships with encrypted memory, ZK-proven reputation, and DID-verified identity out of the box.
+
+The hiring layer for private agents.
+
+---
+
+### Tweet 4/7 — Light Protocol
+
+Next up: Light Protocol integration.
+
+Solana-native shielded transactions. Compressed state. Private balances and transfers built directly into the L1 you already use.
+
+Kage + Light = agents that transact privately at Solana speed, without bridging to a separate privacy chain.
+
+---
+
+### Tweet 5/7 — On-Chain Circuit Registry
+
+ZK circuits aren't static. They get patched, upgraded, deprecated.
+
+We're building an on-chain registry so every verifier knows exactly which circuit version produced which proof.
+
+Versioned ZK. Auditable upgrades. No silent trust assumptions.
+
+---
+
+### Tweet 6/7 — Private Semantic Memory Search
+
+The hardest one: private semantic search.
+
+Your agent should query its encrypted memory by meaning — not just by key — without ever decrypting it server-side.
+
+ZK proofs + embeddings over ciphertext. Recall without exposure. This is new territory.
+
+---
+
+### Tweet 7/7 — Why Horizon Matters
+
+Phases 壱-八 made agent privacy possible.
+
+Phase 九 makes it native.
+
+Shielded TX, versioned circuits, a marketplace, and searchable encrypted memory — this is the substrate autonomous agents will actually run on.
+
+Follow @kage_agent
+github.com/ranulfmeier/kage
+
+---
+
+## 4. PHASE 九 STANDALONE POSTS
+
+---
+
+### Post 11 — Marketplace Launch
+
+The Kage agent marketplace is live.
+
+Discover autonomous agents. Read ZK-verified reviews. Hire agents whose reputation is provable, not performative.
+
+Every agent on the marketplace ships with encrypted memory and DID identity by default.
+
+Phase 九 has begun.
+
+---
+
+### Post 12 — Light Protocol Teaser
+
+Solana-native shielded transactions are coming to Kage.
+
+Light Protocol integration means agents pay, receive and settle privately — on the same L1 they already live on. No bridges. No wrapped assets.
+
+Private value transfer for autonomous agents. $KAGE
+
+---
+
+### Post 13 — Versioned ZK
+
+ZK circuits evolve. Bugs get patched. Constraints tighten.
+
+Without versioning, verifiers can't tell a legitimate upgrade from a silent downgrade.
+
+Kage's on-chain circuit registry pins every proof to a specific circuit hash. Provable lineage. No silent trust.
+
+---
+
+### Post 14 — Semantic Search Over Encrypted Memory
+
+Plaintext vector DBs leak every query you make.
+
+We're building semantic memory search that runs over encrypted embeddings — with ZK proofs that the recall was honest.
+
+Your agent finds what it needs. Nobody else sees what it asked.
+
+Phase 九.
+
+---
+
+### Post 15 — The Horizon Chapter
+
+Six phases to build it. Two phases to harden it. One phase to ship it to the ecosystem.
+
+Phase 九 is where Kage stops being a privacy *layer* and becomes privacy *infrastructure* — the default substrate autonomous agents run on.
+
+Marketplace. Shielded TX. Versioned ZK. Private recall.
+
+---
+
+## 5. HARDENING DROP — TECHNICAL POST
+
+---
+
+### Post 16 — Prover Service Hardening
+
+Quiet week, loud diff. The Kage prover service just got production-grade guardrails:
+
+→ Per-IP rate limiting via `tower_governor` — 10 req/s burst, 30/s sustained, tunable via `PROVER_RATE_PER_SECOND` / `PROVER_RATE_BURST`.
+
+→ Mandatory auth in network mode. If `PROVER_ENFORCE_AUTH=true` or the prover runs against SP1's network prover, missing `PROVER_API_KEY` is now a hard exit(2) — not a warning.
+
+→ Route layering split: `/health` stays public, `/prove/*` and `/proof/{id}` sit behind auth + governor.
+
+No more "oops, we left the prover open on port 3003." #ZK #Rust
+
+---
+
+### Post 17 — API Test Mode
+
+Shipping tests for an Express app that boots an LLM client, opens a WebSocket, and pre-inits a KageAgent on module load is painful.
+
+New in the API package: `KAGE_API_TEST_MODE=1`.
+
+- Skips LLM provider bootstrap (uses a no-op stub)
+- Skips `httpServer.listen`
+- Skips agent pre-init
+- Exports `app` + `httpServer` so supertest can mount them directly
+
+Vitest configs landed for `@kage/api` and `@kage/agent`. CI is finally honest.
+
+---
+
+### Post 18 — SECURITY.md & Threat Model
+
+We published [docs/SECURITY.md](docs/SECURITY.md) — the first written threat model for Kage.
+
+Trust table across all six components (Solana program, SDK, prover, API, IPFS, user keypair). What each is trusted for, what it is *not* trusted for.
+
+Explicit: plaintext confidentiality is the SDK's job, not IPFS's. Commitment integrity is the program's job, not the prover's. Users trust their own keypair above everything.
+
+No hand-waving. If you want to audit Kage, start here.
+
+---
+
+### Post 19 — DEPLOYMENT.md
+
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) is live — full checklist for bringing up the Kage stack on devnet or mainnet.
+
+Toolchain pins (Node 20+, Rust 1.82+, Anchor 0.32.0, SP1 6.0.2). Every required env var. API ↔ prover wiring. Groth16 verifier deploy. Keypair hygiene.
+
+Built so a new operator can stand up the whole stack without reading a single source file.
+
+---
+
+### Post 20 — Why Hardening Beats Features
+
+No new circuits this week. No marketplace polish. No fresh wrappers.
+
+Just: rate limits, mandatory auth, test mode, threat model, deploy guide.
+
+Because the thing that kills privacy protocols isn't a missing feature — it's an unauthenticated prover endpoint, a test suite nobody can run, and a threat model nobody wrote down.
+
+Boring on the timeline. Load-bearing for mainnet.

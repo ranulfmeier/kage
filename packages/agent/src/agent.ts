@@ -629,7 +629,7 @@ export class KageAgent {
     subjectDID: string;
     type: string;
     claim: Record<string, unknown>;
-    expiresInMs?: number;
+    expiresInSec?: number;
   }): Promise<KageCredential> {
     return this.didPlugin.issueCredential(params);
   }

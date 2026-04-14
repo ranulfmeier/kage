@@ -8,12 +8,13 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc --skipLibCheck",
-    "start:dev": "tsx src/index.ts"
+    "start:dev": "tsx src/index.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@kage/agent": "workspace:*",
     "@kage/sdk": "workspace:*",
-    "@solana/web3.js": "^1.98.0",
+    "@solana/web3.js": "^1.98.4",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "ws": "^8.18.0"
@@ -22,8 +23,11 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.10",
+    "@types/supertest": "^6.0.3",
     "@types/ws": "^8.5.14",
+    "supertest": "^7.2.2",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.9"
   }
 }

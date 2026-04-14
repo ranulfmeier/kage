@@ -92,7 +92,7 @@ didCommand
         return;
       }
       creds.forEach((c, i) => {
-        console.log(chalk.gray(`\n  [${i + 1}] `) + chalk.white(c.type) + chalk.gray(` · ${new Date(c.issuedAt).toLocaleString()}`));
+        console.log(chalk.gray(`\n  [${i + 1}] `) + chalk.white(c.type) + chalk.gray(` · ${new Date(c.issuedAt * 1000).toLocaleString()}`));
         console.log(chalk.gray("       ID:      ") + chalk.cyan(c.credentialId));
         console.log(chalk.gray("       Subject: ") + chalk.white(shortKey(c.subject)));
         if (c.explorerUrl) console.log(chalk.gray("       Solscan: ") + chalk.cyan(c.explorerUrl));

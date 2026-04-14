@@ -14,7 +14,7 @@
   "dependencies": {
     "@kage/agent": "workspace:*",
     "@kage/sdk": "workspace:*",
-    "@solana/web3.js": "^1.95.0",
+    "@solana/web3.js": "^1.98.4",
     "chalk": "^5.3.0",
     "commander": "^12.1.0",
     "ora": "^8.1.1",

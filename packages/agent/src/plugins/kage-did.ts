@@ -50,7 +50,7 @@ export class KageDIDPlugin {
     subjectDID: string;
     type: string;
     claim: Record<string, unknown>;
-    expiresInMs?: number;
+    expiresInSec?: number;
   }): Promise<KageCredential> {
     return this.engine.issueCredential(params);
   }

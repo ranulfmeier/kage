@@ -11,6 +11,7 @@ use axum::{
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{Elf, HashableKey, ProveRequest, Prover, ProverClient, ProvingKey, SP1Stdin};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -553,11 +554,21 @@ async fn main() {
     info!("ELF binaries loaded: reputation={}B, memory={}B, task={}B",
         reputation_elf.len(), memory_elf.len(), task_elf.len());
 
+    let enforce_auth = env::var("PROVER_ENFORCE_AUTH")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    let network_mode = mode == "network";
     let api_key = env::var("PROVER_API_KEY").ok().map(Arc::new);
+
     if api_key.is_some() {
         info!("API key authentication enabled");
+    } else if enforce_auth || network_mode {
+        error!(
+            "PROVER_API_KEY is required when PROVER_ENFORCE_AUTH=true or prover mode is 'network' — refusing to start"
+        );
+        std::process::exit(2);
     } else {
-        warn!("No PROVER_API_KEY set — service is unauthenticated");
+        warn!("No PROVER_API_KEY set — service is unauthenticated (dev mode only)");
     }
 
     let state = AppState {
@@ -569,22 +580,41 @@ async fn main() {
         task_elf,
     };
 
-    let app = Router::new()
-        .route("/health", get(health))
+    // Rate limiting: 10 requests/sec burst, 30/sec sustained per client IP.
+    // Tune via PROVER_RATE_PER_SECOND / PROVER_RATE_BURST.
+    let rate_per_second: u64 = env::var("PROVER_RATE_PER_SECOND")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    let rate_burst: u32 = env::var("PROVER_RATE_BURST")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(30);
+
+    let governor_config = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(rate_per_second)
+            .burst_size(rate_burst)
+            .finish()
+            .expect("invalid governor config"),
+    );
+
+    let protected_routes = Router::new()
         .route("/prove/reputation", post(prove_reputation))
         .route("/prove/memory", post(prove_memory))
         .route("/prove/task", post(prove_task))
         .route("/proof/{proof_id}", get(get_proof))
+        .layer(GovernorLayer { config: governor_config })
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
-        ))
-        .layer(
-            tower_http::cors::CorsLayer::permissive()
-        )
-        .layer(
-            tower_http::trace::TraceLayer::new_for_http()
-        )
+        ));
+
+    let app = Router::new()
+        .route("/health", get(health))
+        .merge(protected_routes)
+        .layer(tower_http::cors::CorsLayer::permissive())
+        .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 
     let port: u16 = env::var("PROVER_PORT")
