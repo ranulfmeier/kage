@@ -15,7 +15,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "lint": "eslint src/",
-    "test": "vitest"
+    "test": "vitest",
+    "bench": "vitest bench --run --config vitest.bench.config.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.30.1",
