@@ -279,7 +279,7 @@ const apiSections: ApiSection[] = [
     id: 'reasoning',
     label: '理',
     title: 'Reasoning',
-    description: 'Hidden reasoning traces that allow agents to think privately. Traces can be selectively revealed via audit keys.',
+    description: 'Hidden reasoning traces encrypted client-side with AES-256-GCM. A SHA-256 hash of each trace is broadcast via the SPL Memo program for timestamped audit trails. Traces are revealed on demand by the holder of the session audit key.',
     endpoints: [
       {
         id: 'get-reasoning',
@@ -324,7 +324,7 @@ const apiSections: ApiSection[] = [
     id: 'reputation',
     label: '名',
     title: 'Reputation',
-    description: 'On-chain reputation scoring with ZK-provable snapshots. Track agent reliability across tasks.',
+    description: 'Reputation tracking comes in two flavors. The /reputation/* endpoints below operate on a local scoreboard (an in-memory event log per agent, optionally broadcast to the SPL Memo program for timestamped audit trails — not smart-contract-enforced). For cross-agent provable reputation, use the /zk/commit/reputation endpoint, which generates an SP1 Groth16 proof and anchors it on-chain via verify_sp1_proof.',
     endpoints: [
       {
         id: 'get-reputation',
@@ -388,7 +388,7 @@ const apiSections: ApiSection[] = [
         id: 'post-reputation-snapshot',
         method: 'POST',
         path: '/reputation/snapshot',
-        description: 'Commit a ZK-provable snapshot of the current reputation state to the on-chain commitment store.',
+        description: 'Broadcast the current local reputation state as a timestamped commitment via the SPL Memo program. Note: this is an audit trail, not a ZK proof — for cryptographically enforceable reputation commitments, call POST /zk/commit/reputation instead, which runs the SP1 reputation circuit and produces a Groth16 proof verifiable on-chain via verify_sp1_proof.',
         response: `{
   "commitmentId": "cmt_abc",
   "score": 90,
@@ -401,7 +401,7 @@ const apiSections: ApiSection[] = [
     id: 'teams',
     label: '隊',
     title: 'Team Vaults',
-    description: 'Multi-party encrypted vaults with role-based access control and threshold-based secret management.',
+    description: 'Multi-party encrypted vaults with role-based access control. Secrets are encrypted client-side via Shamir secret sharing + AES-256-GCM per member (X25519 ECDH-wrapped shares). Note: team membership state and role lifecycle are tracked client-side with audit trails via the SPL Memo program — removing a member does not rotate the team key, so removed members retain access to secrets they already decrypted. Full key-rotation on member removal is planned.',
     endpoints: [
       {
         id: 'get-team',
@@ -454,7 +454,7 @@ const apiSections: ApiSection[] = [
         id: 'post-team-remove',
         method: 'POST',
         path: '/team/:teamId/remove',
-        description: 'Remove a member from a team. Requires admin role.',
+        description: 'Remove a member from a team. Requires admin role. IMPORTANT: current implementation does NOT rotate the team encryption key — the removed member loses access to *future* secrets but can still decrypt any data they obtained before removal. Plan the removal accordingly.',
         body: {
           memberPubkey: 'string -- Public key of the member to remove',
         },
@@ -610,7 +610,7 @@ const apiSections: ApiSection[] = [
     id: 'tasks',
     label: '務',
     title: 'Tasks',
-    description: 'Shielded task delegation between agents with encrypted instructions and results.',
+    description: 'Shielded task delegation between agents. Instruction and result payloads are end-to-end encrypted with X25519 ECDH + AES-256-GCM. Task-lifecycle state (accepted / completed / result) is currently tracked client-side; a timestamped audit trail is broadcast via the SPL Memo program. Smart-contract-enforced task state is planned.',
     endpoints: [
       {
         id: 'get-tasks',

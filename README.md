@@ -129,9 +129,16 @@ console.log(recall);
 
 | Package | Description |
 |---------|-------------|
-| `@kage/sdk` | Core SDK for memory vault operations |
-| `@kage/agent` | Eliza-compatible agent with Kage plugins |
-| `programs/kage` | Solana program (Anchor) |
+| `@kage/sdk` | Core TypeScript SDK — vault, credentials, ZK, DID, encryption, messaging |
+| `@kage/agent` | Agent runtime with pluggable LLM providers (Claude, OpenAI, Ollama) |
+| `@kage/api` | REST + WebSocket API server (Express) |
+| `@kage/cli` | Terminal CLI for chat, memory, DID, reputation commands |
+| `@kage/plugin-eliza` | ElizaOS plugin wrapping the Kage SDK |
+| `kage-sdk` (Python) | Python client with LangChain + CrewAI wrappers |
+| `kage-prover-service` | Rust/Axum hosted SP1 prover (CPU + Succinct Network mode) |
+| `kage-zk-circuits` | SP1 RISC-V circuits (reputation, memory, task) |
+| `@kage/website` | Public docs, agent showcase, marketplace UI (Vue) |
+| `programs/kage` | Solana Anchor program |
 
 ## SDK Usage
 
@@ -170,20 +177,26 @@ const actions = plugin.getActions();
 
 ## Solana Program
 
-The Kage program manages on-chain memory commitments and access control.
+The Kage program manages on-chain memory commitments, access control, ZK proof verification, and DID credentials.
 
 ### Instructions
 
-- `initialize_vault`: Create a new memory vault for an agent
-- `store_memory`: Store a memory commitment (CID + metadata hash)
-- `grant_access`: Grant viewing access to another public key
-- `revoke_access`: Revoke previously granted access
+- `initialize_vault` — Create a new memory vault for an agent
+- `store_memory` — Store a memory commitment (CID + metadata hash)
+- `grant_access` — Grant viewing access to another public key (enforced by `has_one = owner` + `Signer`)
+- `revoke_access` — Revoke previously granted access
+- `verify_sp1_proof` — Verify an SP1 Groth16 proof on-chain via the `sp1-solana` precompile pipeline (~200K CU)
+- `verify_credential` — Verify a DID credential signature through the Ed25519 precompile sequential pattern; binds the precompile to a canonical 144-byte credential envelope and stores a `CredentialVerification` PDA
+- `revoke_credential` — Revoke a credential via an issuer-signed, domain-separated digest; creates a permanent `CredentialRevocation` PDA
 
 ### PDAs
 
 - **MemoryVault**: `[b"vault", owner_pubkey]`
 - **MemoryEntry**: `[b"memory", vault_pubkey, index_bytes]`
 - **AccessGrant**: `[b"access", vault_pubkey, grantee_pubkey]`
+- **ZkVerification**: `[b"zk_verify", authority_pubkey, proof_type, vkey_hash]`
+- **CredentialVerification**: `[b"credential", issuer_pubkey, credential_id]`
+- **CredentialRevocation**: `[b"cred_revoke", issuer_pubkey, credential_id]`
 
 ## Security Model
 
@@ -210,27 +223,27 @@ pnpm lint
 
 ## Roadmap
 
-### MVP (P0) ✅
-- [x] Single agent encrypted memory vault
-- [x] Owner-only access control
-- [x] Basic memory operations (store, recall, list)
-- [x] Eliza plugin integration
-- [x] Devnet deployment
+The phased roadmap lives in [roadmap.md](roadmap.md). Short summary:
 
-### Phase 1 (P1)
-- [ ] Multi-party viewing key sharing
-- [ ] Memory categories and search
-- [ ] Arweave permanent storage
+- **Phase 壱 Core Protocol** ✅ — client-side AES-256-GCM, IPFS, PDA commitments, viewing keys, Eliza plugin, devnet
+- **Phase 弐 Privacy Layer** ✅ — Umbra SDK integration, shielded proofs, on-chain verification
+- **Phase 参 Multi-Agent** ✅ — shielded delegation, E2E messaging, group vaults, stealth payments (real on-chain)
+- **Phase 肆 Advanced Privacy** ✅ — reasoning traces, DID integration, SP1 zkVM circuits
+- **Phase 伍 Enterprise** ✅ — CLI, Arweave, team vaults, Python SDK
+- **Phase 六 ZK Proofs** ✅ — SP1 circuits (reputation/memory/task), hash commitment engine, on-chain Groth16 verifier
+- **Phase 七 Foundation** 🟡 — vault access control, Ed25519 DID on-chain, prover auth + rate limiting (shipped); mainnet + broader test coverage (in progress)
+- **Phase 八 Adoption** ✅ — LangChain/CrewAI wrappers, wallet connect, token-gated API, demo agents, quickstart
+- **Phase 九 Horizon** 🟡 — marketplace (shipped); Light Protocol, ZK circuit registry, private semantic search (planned)
 
-### Phase 2 (P2)
-- [ ] Agent-to-agent shielded task delegation
-- [ ] x402 payment integration
-- [ ] Reasoning trace shielding (ZK)
+## Module reality
 
-### Phase 3 (P3)
-- [ ] Mainnet deployment
-- [ ] DID integration
-- [ ] Cross-agent memory sharing
+Not every feature in Kage is enforced by a smart contract. Some SDK modules use client-side cryptography (X25519 ECDH, AES-256-GCM, Shamir SSS) plus an on-chain audit trail via the SPL Memo program, while others write state directly to the Kage Anchor program. If you're building on top of Kage, read [docs/MODULE-REALITY.md](docs/MODULE-REALITY.md) to know exactly which module gives you which guarantee before choosing your architecture.
+
+Smart-contract-enforced: `vault` (initialize/store/grant/revoke), `credential-tx` (verify/revoke), `zk` (SP1 Groth16 verifier), `shielded-payment` (native SOL transfers), `tiers` (SPL token reads).
+
+Client-crypto + memo audit trail: `delegation`, `team-vault`, `group-vault`, `reasoning`, `messaging`.
+
+Local-only (no on-chain state): `reputation.ts` — for provable reputation, use the SP1 pipeline via `zk.commitReputation`.
 
 ## License
 

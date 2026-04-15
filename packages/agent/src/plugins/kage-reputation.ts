@@ -1,6 +1,6 @@
 import { Keypair } from "@solana/web3.js";
 import {
-  ReputationEngine,
+  LocalReputationTracker,
   AgentReputation,
   ReputationEvent,
   ReputationSnapshot,
@@ -12,11 +12,21 @@ export interface KageReputationPluginConfig {
   network?: string;
 }
 
+/**
+ * Plugin wrapper around {@link LocalReputationTracker}.
+ *
+ * **Important**: this plugin's state is local-only and not cross-agent
+ * provable — it is a convenience scoreboard that an agent uses to track
+ * its own task history. For cross-agent provable reputation (usable in
+ * multi-agent trust decisions, marketplace reviews, etc.), call the ZK
+ * pipeline via `ZKCommitmentEngine.commitReputation()` instead, which
+ * anchors a Groth16 proof on-chain through `verify_sp1_proof`.
+ */
 export class KageReputationPlugin {
-  private engine: ReputationEngine;
+  private engine: LocalReputationTracker;
 
   constructor(config: KageReputationPluginConfig) {
-    this.engine = new ReputationEngine({ rpcUrl: config.rpcUrl, network: config.network });
+    this.engine = new LocalReputationTracker({ rpcUrl: config.rpcUrl, network: config.network });
   }
 
   async initialize(keypair: Keypair): Promise<void> {
