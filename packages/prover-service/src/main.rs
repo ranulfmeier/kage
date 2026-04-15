@@ -1,19 +1,48 @@
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use axum::{
-    Router,
     extract::{Json, Path, State},
     http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::IntoResponse,
     routing::{get, post},
+    Router,
 };
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{Elf, HashableKey, ProveRequest, Prover, ProverClient, ProvingKey, SP1Stdin};
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{
+    governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
+};
 use tracing::{error, info, warn};
 use uuid::Uuid;
+
+// ── Rate limit key extractor ─────────────────────────────────────────────────
+//
+// Per-API-key rate limiting: each distinct `x-api-key` header value gets its
+// own token bucket. Requests without an API key fall into a single shared
+// "anonymous" bucket — this only happens in dev mode since production refuses
+// to start without `PROVER_API_KEY` (see startup check below).
+//
+// When the API enforces auth (`PROVER_ENFORCE_AUTH=true` or `network` mode),
+// a distributed attacker cannot sidestep the limit by rotating source IPs;
+// each stolen API key still has its own ceiling. Key rotation is the
+// incident-response lever.
+#[derive(Debug, Clone)]
+struct ApiKeyExtractor;
+
+impl KeyExtractor for ApiKeyExtractor {
+    type Key = String;
+
+    fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
+        let key = req
+            .headers()
+            .get("x-api-key")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("__anonymous__");
+        Ok(key.to_string())
+    }
+}
 
 use kage_zk_lib::*;
 
@@ -122,18 +151,26 @@ async fn prove_with_elf(
 ) -> Result<ProveResult, String> {
     info!(mode = %mode, "Building SP1 ProverClient");
 
-    let elf = Elf::from(&elf_bytes[..]);
+    let elf = Elf::from(elf_bytes);
 
     if mode == "network" {
         let client = ProverClient::builder().network().build().await;
-        let pk = client.setup(elf).await.map_err(|e| format!("Setup failed: {e}"))?;
+        let pk = client
+            .setup(elf)
+            .await
+            .map_err(|e| format!("Setup failed: {e}"))?;
         let vk = pk.verifying_key();
-        let proof = client.prove(&pk, stdin).groth16().await
+        let proof = client
+            .prove(&pk, stdin)
+            .groth16()
+            .await
             .map_err(|e| format!("Groth16 prove failed: {e}"))?;
-        client.verify(&proof, vk, None).map_err(|e| format!("Verify failed: {e}"))?;
+        client
+            .verify(&proof, vk, None)
+            .map_err(|e| format!("Verify failed: {e}"))?;
 
         let groth16_proof_hex = hex::encode(proof.bytes());
-        let sp1_public_inputs_hex = hex::encode(&proof.public_values.to_vec());
+        let sp1_public_inputs_hex = hex::encode(proof.public_values.to_vec());
 
         Ok(ProveResult {
             vkey_hex: vk.bytes32(),
@@ -143,11 +180,19 @@ async fn prove_with_elf(
         })
     } else {
         let client = ProverClient::builder().cpu().build().await;
-        let pk = client.setup(elf).await.map_err(|e| format!("Setup failed: {e}"))?;
+        let pk = client
+            .setup(elf)
+            .await
+            .map_err(|e| format!("Setup failed: {e}"))?;
         let vk = pk.verifying_key();
-        let proof = client.prove(&pk, stdin).compressed().await
+        let proof = client
+            .prove(&pk, stdin)
+            .compressed()
+            .await
             .map_err(|e| format!("Prove failed: {e}"))?;
-        client.verify(&proof, vk, None).map_err(|e| format!("Verify failed: {e}"))?;
+        client
+            .verify(&proof, vk, None)
+            .map_err(|e| format!("Verify failed: {e}"))?;
 
         Ok(ProveResult {
             vkey_hex: vk.bytes32(),
@@ -535,8 +580,7 @@ async fn main() {
     info!(mode = %mode, "Kage Prover Service starting");
 
     let elf_dir = env::var("ELF_DIR").unwrap_or_else(|_| {
-        let default = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../zk-circuits/program/elf");
+        let default = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../zk-circuits/program/elf");
         default.to_string_lossy().to_string()
     });
     info!(elf_dir = %elf_dir, "Loading ELF binaries");
@@ -544,15 +588,24 @@ async fn main() {
     let load_elf = |name: &str| -> Vec<u8> {
         let path = PathBuf::from(&elf_dir).join(name);
         std::fs::read(&path).unwrap_or_else(|e| {
-            panic!("Failed to load ELF {}: {} (path: {})", name, e, path.display());
+            panic!(
+                "Failed to load ELF {}: {} (path: {})",
+                name,
+                e,
+                path.display()
+            );
         })
     };
 
     let reputation_elf = Arc::new(load_elf("reputation"));
     let memory_elf = Arc::new(load_elf("memory"));
     let task_elf = Arc::new(load_elf("task"));
-    info!("ELF binaries loaded: reputation={}B, memory={}B, task={}B",
-        reputation_elf.len(), memory_elf.len(), task_elf.len());
+    info!(
+        "ELF binaries loaded: reputation={}B, memory={}B, task={}B",
+        reputation_elf.len(),
+        memory_elf.len(),
+        task_elf.len()
+    );
 
     let enforce_auth = env::var("PROVER_ENFORCE_AUTH")
         .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
@@ -580,7 +633,9 @@ async fn main() {
         task_elf,
     };
 
-    // Rate limiting: 10 requests/sec burst, 30/sec sustained per client IP.
+    // Rate limiting: 10 requests/sec burst, 30/sec sustained PER API KEY.
+    // Each distinct `x-api-key` gets its own token bucket; anonymous
+    // requests (dev only) share a single `__anonymous__` bucket.
     // Tune via PROVER_RATE_PER_SECOND / PROVER_RATE_BURST.
     let rate_per_second: u64 = env::var("PROVER_RATE_PER_SECOND")
         .ok()
@@ -595,6 +650,7 @@ async fn main() {
         GovernorConfigBuilder::default()
             .per_second(rate_per_second)
             .burst_size(rate_burst)
+            .key_extractor(ApiKeyExtractor)
             .finish()
             .expect("invalid governor config"),
     );
@@ -604,7 +660,9 @@ async fn main() {
         .route("/prove/memory", post(prove_memory))
         .route("/prove/task", post(prove_task))
         .route("/proof/{proof_id}", get(get_proof))
-        .layer(GovernorLayer { config: governor_config })
+        .layer(GovernorLayer {
+            config: governor_config,
+        })
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
