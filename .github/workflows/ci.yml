@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript:
+    name: TypeScript (build + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace (typecheck)
+        run: pnpm --filter "!@kage/website" -r build
+
+      - name: Run SDK tests
+        run: pnpm --filter @kage/sdk exec vitest run
+
+      - name: Run API tests
+        run: pnpm --filter @kage/api test
+
+      - name: Run agent tests
+        run: pnpm --filter @kage/agent test
+
+      - name: Run integration-adjacent unit tests
+        run: pnpm --filter @kage/tests exec vitest run
+
+  rust:
+    name: Rust (check prover + zk-lib)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            packages/prover-service
+            packages/zk-circuits
+
+      - name: cargo check — prover-service
+        working-directory: packages/prover-service
+        run: cargo check --all-targets
+
+      - name: cargo check — zk-circuits lib
+        working-directory: packages/zk-circuits
+        run: cargo check -p kage-zk-lib
+
+      - name: cargo fmt — prover-service
+        working-directory: packages/prover-service
+        run: cargo fmt --check
+
+      - name: cargo clippy — prover-service
+        working-directory: packages/prover-service
+        run: cargo clippy --all-targets -- -D warnings
