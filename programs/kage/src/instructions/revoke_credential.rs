@@ -1,12 +1,12 @@
 use anchor_lang::prelude::*;
 use solana_program::{
-    ed25519_program,
     hash::hash as sol_sha256,
     sysvar::instructions as ixs_sysvar,
 };
 
 use crate::errors::KageError;
 use crate::state::{seeds, CredentialRevocation};
+use crate::utils::ed25519_precompile::load_and_parse_preceding_ed25519;
 
 /// Domain-separated prefix for revocation signatures. This prevents any valid
 /// credential-verification signature from being replayed as a revocation
@@ -39,62 +39,15 @@ pub fn handler(
     credential_id: [u8; 32],
     issuer: Pubkey,
 ) -> Result<()> {
-    // ── 1. Locate the Ed25519 precompile ix immediately before us ────────
-    let ixs_ai = &ctx.accounts.instructions_sysvar;
-    let current_ix_index = ixs_sysvar::load_current_index_checked(ixs_ai)?;
-    if current_ix_index == 0 {
-        return err!(KageError::MissingEd25519Instruction);
-    }
-    let ed_ix = ixs_sysvar::load_instruction_at_checked(
-        (current_ix_index - 1) as usize,
-        ixs_ai,
-    )?;
+    // ── 1. Parse the Ed25519 precompile ix immediately before us ─────────
+    let parsed = load_and_parse_preceding_ed25519(&ctx.accounts.instructions_sysvar)?;
 
-    if ed_ix.program_id != ed25519_program::ID {
-        return err!(KageError::InvalidEd25519Program);
-    }
-
-    // ── 2. Parse the precompile header (same layout as verify_credential) ─
-    let data = &ed_ix.data;
-    if data.len() < 16 {
-        return err!(KageError::MalformedEd25519Instruction);
-    }
-    if data[0] != 1 {
-        return err!(KageError::UnexpectedEd25519SignatureCount);
-    }
-
-    let read_u16 = |off: usize| -> u16 {
-        u16::from_le_bytes([data[off], data[off + 1]])
-    };
-
-    let sig_offset = read_u16(2) as usize;
-    let sig_ix_idx = read_u16(4);
-    let pk_offset = read_u16(6) as usize;
-    let pk_ix_idx = read_u16(8);
-    let msg_offset = read_u16(10) as usize;
-    let msg_size = read_u16(12) as usize;
-    let msg_ix_idx = read_u16(14);
-
-    if sig_ix_idx != u16::MAX || pk_ix_idx != u16::MAX || msg_ix_idx != u16::MAX {
-        return err!(KageError::MalformedEd25519Instruction);
-    }
-    if sig_offset.checked_add(64).map_or(true, |e| e > data.len()) {
-        return err!(KageError::MalformedEd25519Instruction);
-    }
-    if pk_offset.checked_add(32).map_or(true, |e| e > data.len()) {
-        return err!(KageError::MalformedEd25519Instruction);
-    }
-    if msg_offset.checked_add(msg_size).map_or(true, |e| e > data.len()) {
-        return err!(KageError::MalformedEd25519Instruction);
-    }
-
-    // ── 3. Bind to revocation semantics ──────────────────────────────────
-    if msg_size != 32 {
+    // ── 2. Bind precompile to revocation semantics ───────────────────────
+    if parsed.message.len() != 32 {
         return err!(KageError::Ed25519MessageLengthMismatch);
     }
 
-    let ed_pubkey = &data[pk_offset..pk_offset + 32];
-    if ed_pubkey != issuer.as_ref() {
+    if parsed.pubkey != issuer.to_bytes() {
         return err!(KageError::Ed25519PubkeyMismatch);
     }
 
@@ -106,8 +59,7 @@ pub fn handler(
     preimage[46..78].copy_from_slice(&credential_id);
     let digest = sol_sha256(&preimage).to_bytes();
 
-    let ed_msg = &data[msg_offset..msg_offset + msg_size];
-    if ed_msg != digest {
+    if parsed.message.as_slice() != digest {
         return err!(KageError::Ed25519MessageMismatch);
     }
 
