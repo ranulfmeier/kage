@@ -9,6 +9,7 @@ export * from "./group-vault.js";
 export * from "./shielded-payment.js";
 export * from "./reasoning.js";
 export * from "./did.js";
+export * from "./credential-tx.js";
 export * from "./reputation.js";
 export * from "./arweave.js";
 export * from "./team-vault.js";

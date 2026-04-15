@@ -53,4 +53,42 @@ pub mod kage {
     ) -> Result<()> {
         instructions::verify_proof::handler(ctx, proof_type, vkey_hash, proof_bytes, public_inputs)
     }
+
+    /// Verify a Kage DID credential on-chain.
+    ///
+    /// The Ed25519 signature must be validated by Solana's ed25519 precompile
+    /// instruction placed immediately before this instruction in the tx.
+    /// See `instructions::verify_credential` for the full binding contract.
+    pub fn verify_credential(
+        ctx: Context<VerifyCredential>,
+        credential_id: [u8; 32],
+        issuer: Pubkey,
+        subject: Pubkey,
+        claim_hash: [u8; 32],
+        issued_at: i64,
+        expires_at: i64,
+    ) -> Result<()> {
+        instructions::verify_credential::handler(
+            ctx,
+            credential_id,
+            issuer,
+            subject,
+            claim_hash,
+            issued_at,
+            expires_at,
+        )
+    }
+
+    /// Revoke a Kage DID credential on-chain.
+    ///
+    /// The issuer signs a domain-separated revocation payload off-chain; the
+    /// Ed25519 precompile verifies the signature. Revocation is permanent —
+    /// no instruction closes the CredentialRevocation PDA.
+    pub fn revoke_credential(
+        ctx: Context<RevokeCredential>,
+        credential_id: [u8; 32],
+        issuer: Pubkey,
+    ) -> Result<()> {
+        instructions::revoke_credential::handler(ctx, credential_id, issuer)
+    }
 }

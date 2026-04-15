@@ -40,4 +40,35 @@ pub enum KageError {
 
     #[msg("Proof data too large")]
     ProofDataTooLarge,
+
+    // ── Credential verification ────────────────────────────────────────────
+    #[msg("Credential has expired")]
+    CredentialExpired,
+
+    #[msg("Credential revocation PDA already exists for this credential")]
+    CredentialRevoked,
+
+    #[msg("Invalid Ed25519 instruction: must be immediately before verify_credential")]
+    MissingEd25519Instruction,
+
+    #[msg("Ed25519 precompile instruction has wrong program id")]
+    InvalidEd25519Program,
+
+    #[msg("Ed25519 precompile instruction data is malformed")]
+    MalformedEd25519Instruction,
+
+    #[msg("Ed25519 precompile must contain exactly one signature")]
+    UnexpectedEd25519SignatureCount,
+
+    #[msg("Ed25519 signer pubkey does not match credential issuer")]
+    Ed25519PubkeyMismatch,
+
+    #[msg("Ed25519 signed message length must be 32 (sha256 digest)")]
+    Ed25519MessageLengthMismatch,
+
+    #[msg("Ed25519 signed message does not match credential digest")]
+    Ed25519MessageMismatch,
+
+    #[msg("Credential subject does not match the caller")]
+    CredentialSubjectMismatch,
 }

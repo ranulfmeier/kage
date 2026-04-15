@@ -134,10 +134,65 @@ pub struct ZkVerification {
     pub bump: u8,
 }
 
+/// On-chain DID credential verification record.
+///
+/// Created by `verify_credential` after the Ed25519 precompile has validated
+/// the issuer's signature over the 144-byte canonical envelope (sha256 → 32-byte
+/// digest). Downstream programs treat the existence of this PDA as "this
+/// credential was signed by `issuer` for `subject` at `verified_at`".
+///
+/// Idempotent by design: re-verifying the same credential fails with
+/// account-already-in-use, which is the intended signal to downstream code.
+#[account]
+#[derive(InitSpace)]
+pub struct CredentialVerification {
+    /// 32-byte random credential identifier (also used in the PDA seed)
+    pub credential_id: [u8; 32],
+    /// Issuer pubkey (also the signer recorded in the Ed25519 precompile)
+    pub issuer: Pubkey,
+    /// Subject pubkey — downstream consumers MUST check this equals the caller
+    pub subject: Pubkey,
+    /// SHA-256 of the canonical (sorted-keys) claim JSON
+    pub claim_hash: [u8; 32],
+    /// Unix timestamp (seconds) — when the credential was issued
+    pub issued_at: i64,
+    /// Unix timestamp (seconds); 0 = no expiry.
+    /// Downstream consumers MUST re-check this against the current clock.
+    pub expires_at: i64,
+    /// On-chain verification timestamp
+    pub verified_at: i64,
+    /// PDA bump
+    pub bump: u8,
+}
+
+/// On-chain DID credential revocation marker.
+///
+/// Created by `revoke_credential` when the issuer signs a revocation intent.
+/// The presence of this PDA at its canonical seed is the only signal
+/// downstream programs need — they check `account.data_is_empty()` on the
+/// PDA derived from `[b"cred_revoke", issuer, credential_id]` and reject
+/// any credential whose revocation PDA exists.
+///
+/// Revocation is permanent: no instruction in this program closes this PDA.
+#[account]
+#[derive(InitSpace)]
+pub struct CredentialRevocation {
+    /// 32-byte credential identifier that is being revoked
+    pub credential_id: [u8; 32],
+    /// Issuer that signed the revocation (must match the original issuer)
+    pub issuer: Pubkey,
+    /// Unix timestamp (seconds) — when revocation was committed
+    pub revoked_at: i64,
+    /// PDA bump
+    pub bump: u8,
+}
+
 /// PDA seeds
 pub mod seeds {
     pub const VAULT_SEED: &[u8] = b"vault";
     pub const MEMORY_SEED: &[u8] = b"memory";
     pub const ACCESS_SEED: &[u8] = b"access";
     pub const ZK_VERIFICATION_SEED: &[u8] = b"zk_verify";
+    pub const CREDENTIAL_SEED: &[u8] = b"credential";
+    pub const CREDENTIAL_REVOKE_SEED: &[u8] = b"cred_revoke";
 }
