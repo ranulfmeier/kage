@@ -1,7 +1,7 @@
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
-import cors from "cors";
+import cors, { CorsOptions } from "cors";
 import { Connection } from "@solana/web3.js";
 import { KageAgent } from "@kage/agent";
 import {
@@ -28,7 +28,52 @@ import { registerWebSocketHandlers } from "./websocket.js";
 import { registerMarketplaceRoutes } from "./marketplace.js";
 
 const app: express.Express = express();
-app.use(cors({ origin: "*" }));
+
+// CORS policy
+// ─────────────────────────────────────────────────────────────────────────────
+// KAGE_CORS_ORIGINS is a comma-separated allowlist of origins the API will
+// accept cross-origin requests from. Supports exact matches and the special
+// value "*" (wildcard — dev only, NEVER set in production).
+//
+// If unset:
+//   - devnet  → wildcard "*" for convenience while iterating locally
+//   - mainnet → empty allowlist (all cross-origin requests rejected). This is
+//               a fail-safe — operators MUST set KAGE_CORS_ORIGINS explicitly
+//               before going to production.
+const rawOrigins = (process.env.KAGE_CORS_ORIGINS ?? "").trim();
+const allowlist: string[] = rawOrigins
+  ? rawOrigins.split(",").map((o) => o.trim()).filter(Boolean)
+  : [];
+const defaultToWildcard = allowlist.length === 0 && SOLANA_NETWORK !== "mainnet";
+const isWildcard = allowlist.includes("*") || defaultToWildcard;
+
+if (!IS_TEST_MODE) {
+  if (isWildcard) {
+    console.warn(
+      `[Kage:API] CORS origin: * (wildcard). OK for devnet; set KAGE_CORS_ORIGINS=https://example.com,... before mainnet.`
+    );
+  } else if (allowlist.length === 0) {
+    console.warn(
+      `[Kage:API] CORS allowlist is empty and network is mainnet — all cross-origin requests will be rejected. Set KAGE_CORS_ORIGINS to re-enable.`
+    );
+  } else {
+    console.log(`[Kage:API] CORS allowlist: ${allowlist.join(", ")}`);
+  }
+}
+
+const corsOptions: CorsOptions = {
+  origin(origin, callback) {
+    // Same-origin and non-browser requests (curl, server-to-server) have
+    // no Origin header — always allowed.
+    if (!origin) return callback(null, true);
+    if (isWildcard) return callback(null, true);
+    if (allowlist.includes(origin)) return callback(null, true);
+    return callback(new Error(`CORS: origin ${origin} is not on the allowlist`));
+  },
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 const httpServer = createServer(app);
