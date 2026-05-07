@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kage CLI Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 12px 16px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .terminal-wrapper { width: 100%; max-width: 640px; }
+
+  .terminal {
+    background: #111113;
+    border-radius: 10px;
+    border: 1px solid #1e1e22;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.03),
+      0 20px 60px rgba(0,0,0,0.6),
+      0 0 80px rgba(99,102,241,0.03);
+  }
+
+  .titlebar {
+    background: #161618;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    border-bottom: 1px solid #1e1e22;
+  }
+
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot.r { background: #ff5f57; }
+  .dot.y { background: #febc2e; }
+  .dot.g { background: #28c840; }
+
+  .titlebar-text {
+    flex: 1; text-align: center;
+    color: #555; font-size: 11px; font-weight: 500; letter-spacing: 0.5px;
+  }
+
+  .tb {
+    padding: 14px 18px 16px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: #a1a1aa;
+  }
+
+  .p { color: #6366f1; font-weight: 600; }
+  .c { color: #e4e4e7; font-weight: 500; }
+  .s { color: #a3e635; }
+  .ok { color: #4ade80; }
+  .cy { color: #22d3ee; }
+  .mg { color: #c084fc; }
+  .d { color: #52525b; }
+  .w { color: #e4e4e7; }
+  .rd { color: #f87171; }
+  .gn { color: #4ade80; }
+  .b { font-weight: 700; }
+  .sb { color: #4ade80; letter-spacing: 0.5px; }
+  .se { color: #27272a; letter-spacing: 0.5px; }
+
+  .i { padding-left: 18px; }
+  .i2 { padding-left: 36px; }
+  .l { min-height: 1.45em; }
+
+  hr.sp { border: none; border-top: 1px solid #1e1e22; margin: 7px 0; }
+
+  .blink {
+    display: inline-block; width: 7px; height: 14px;
+    background: #6366f1; animation: blink 1s step-end infinite;
+    vertical-align: middle; margin-left: 2px;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .blk { opacity: 0; transform: translateY(4px); animation: fi 0.3s ease forwards; }
+  .d1 { animation-delay: 0.1s; }
+  .d2 { animation-delay: 0.4s; }
+  .d3 { animation-delay: 1.4s; }
+  .d4 { animation-delay: 2.4s; }
+  .d5 { animation-delay: 3.4s; }
+  .d6 { animation-delay: 4.2s; }
+  @keyframes fi { to { opacity: 1; transform: translateY(0); } }
+
+  .wm {
+    text-align: center; margin-top: 14px;
+    color: #27272a; font-size: 10px; letter-spacing: 2px; font-weight: 500;
+  }
+
+  .kj { font-size: 13px; color: #3f3f46; margin-right: 5px; }
+  .bn { color: #e4e4e7; font-weight: 700; font-size: 12px; letter-spacing: 0.5px; }
+  .bs { color: #52525b; font-weight: 400; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="terminal-wrapper">
+  <div class="terminal">
+    <div class="titlebar">
+      <div class="dot r"></div>
+      <div class="dot y"></div>
+      <div class="dot g"></div>
+      <div class="titlebar-text">kage &mdash; zsh &mdash; 80&times;24</div>
+      <div style="width:32px"></div>
+    </div>
+    <div class="tb">
+
+      <div class="blk d1">
+        <div class="l"><span class="bn"><span class="kj">影</span> KAGE</span> <span class="bs">&middot; Privacy-first AI Agent CLI</span></div>
+      </div>
+
+      <!-- store -->
+      <div class="blk d2" style="margin-top:4px">
+        <div class="l"><span class="p">~</span> <span class="c">kage store</span> <span class="s">"long BONK — 3x leverage entry at 0.000018"</span></div>
+        <div class="l"><span class="ok">&#10004;</span> <span class="ok">Memory stored successfully</span></div>
+        <div class="l i"><span class="d">Content:</span> <span class="w">long BONK — 3x leverage entry at 0.000018</span></div>
+        <div class="l i"><span class="d">CID:</span>     <span class="cy">bafkreibx7q4v…k8m3</span></div>
+        <div class="l i"><span class="d">Umbra:</span>   <span class="mg">shielded ✓</span></div>
+        <div class="l i"><span class="d">↳ Solscan:</span> <span class="cy">solscan.io/tx/4xKm9…Yvb?cluster=devnet</span></div>
+      </div>
+
+      <hr class="sp">
+
+      <!-- did show -->
+      <div class="blk d3">
+        <div class="l"><span class="p">~</span> <span class="c">kage did show</span></div>
+        <div class="l"><span class="ok">&#10004;</span> <span class="ok">DID loaded</span></div>
+        <div class="l i"><span class="d">DID:</span>        <span class="cy">did:sol:7xKpR4nBwZ9…dE5vQm</span></div>
+        <div class="l i"><span class="d">Agent type:</span> <span class="w">trading-agent</span></div>
+        <div class="l i"><span class="d">Network:</span>    <span class="w">devnet</span>  <span class="d">Reasoning:</span> <span class="gn">enabled</span></div>
+        <div class="l i"><span class="d">X25519 key:</span> <span class="mg">a4f8c92b1d7e…3k9m2x0p</span></div>
+      </div>
+
+      <hr class="sp">
+
+      <!-- reputation -->
+      <div class="blk d4">
+        <div class="l"><span class="p">~</span> <span class="c">kage reputation show</span></div>
+        <div class="l"><span class="ok">&#10004;</span> <span class="ok">Reputation loaded</span></div>
+        <div class="l i"><span class="w b">725</span><span class="d">/1000</span>  <span class="sb">██████████████</span><span class="se">░░░░░░</span>  <span class="mg b">VERIFIED</span></div>
+        <div class="l i"><span class="d">Tasks: 34 total ·</span> <span class="gn">29 ✓</span> <span class="d">·</span> <span class="rd">4 ✗</span> <span class="d">· 1 slashed · 85% success</span></div>
+        <div class="l i"><span class="d">Anchor:</span> <span class="cy">solscan.io/tx/2mRp7…xW4?cluster=devnet</span></div>
+      </div>
+
+      <hr class="sp">
+
+      <!-- recall -->
+      <div class="blk d5">
+        <div class="l"><span class="p">~</span> <span class="c">kage recall</span> <span class="s">"BONK"</span></div>
+        <div class="l"><span class="ok">&#10004;</span> <span class="ok">Recall complete</span></div>
+        <div class="l i"><span class="w">Found 1 memory matching "BONK":</span></div>
+        <div class="l i"><span class="w">long BONK — 3x leverage entry at 0.000018</span></div>
+        <div class="l i"><span class="d">(decrypted via viewing key · shielded proof verified)</span></div>
+      </div>
+
+      <div class="blk d6" style="margin-top:5px">
+        <div class="l"><span class="p">~</span> <span class="blink"></span></div>
+      </div>
+
+    </div>
+  </div>
+  <div class="wm">KAGE &middot; PRIVACY LAYER FOR AI AGENTS &middot; SOLANA DEVNET</div>
+</div>
+</body>
+</html>

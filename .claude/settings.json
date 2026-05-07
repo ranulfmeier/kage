@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git config *)",
+      "Bash(awk '{print $1, $2, $3}')",
+      "Bash(awk -F: '{sum += $2} END {print \"Total test cases:\", sum}')",
+      "Bash(grep -E \"^\\\\.env$|devnet-new-wallet\")",
+      "Bash(grep -E \"^roadmap\\\\.md$\")",
+      "Bash(grep -E \"\\\\.\\(test|spec\\)\\\\.\\(ts|mjs\\)$\")",
+      "Bash(pnpm vitest *)",
+      "Bash(cargo build *)",
+      "Bash(find ~/.cargo/registry/src -path \"*tower_governor*0.7*\" -name \"lib.rs\" 2>/dev/null | head -3; echo \"---\"; find /Users/louis/Desktop/Kage/packages/prover-service/target -name \"tower_governor*\" -type d 2>/dev/null | head -3)",
+      "Read(//Users/louis/.cargo/registry/src/**)",
+      "Bash(cargo test *)",
+      "Bash(env)",
+      "Bash(gh auth *)",
+      "Read(//Users/louis/**)",
+      "Bash(git ls-remote *)"
+    ]
+  }
+}

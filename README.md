@@ -243,6 +243,8 @@ Smart-contract-enforced: `vault` (initialize/store/grant/revoke), `credential-tx
 
 Client-crypto + memo audit trail: `delegation`, `team-vault`, `group-vault`, `reasoning`, `messaging`.
 
+> ⚠️ **Memo-trail caveat:** modules in this category broadcast an SPL Memo transaction for each state change. If the memo TX fails (RPC down, fee issue, etc.) the SDK logs a warning and continues with local state — meaning your local view can briefly diverge from the on-chain audit trail. Treat the memo log as best-effort evidence, not a hard consistency boundary. For strict on-chain enforcement use the smart-contract-enforced modules above.
+
 Local-only (no on-chain state): `reputation.ts` — for provable reputation, use the SP1 pipeline via `zk.commitReputation`.
 
 ## License

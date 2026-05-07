@@ -32,6 +32,42 @@ before every push.
 
 ---
 
+## Production hardening checklist
+
+> **Required before pointing real traffic at any Kage deployment.** Every
+> item below is enforced *only when you set the corresponding flag* — the
+> defaults favor local development, not production.
+
+| # | Setting | Value in production | Why |
+|---|---------|--------------------|-----|
+| 1 | `PROVER_ENFORCE_AUTH` | **`true`** on the prover service | Without this, the prover accepts unauthenticated requests and silently buckets them under a single `__anonymous__` rate-limit. Anyone who can reach the host can burn your Succinct Network credit. |
+| 2 | `PROVER_API_KEY` | 32+ random bytes (`openssl rand -hex 32`) | Set on **both** the prover and every API caller. Per-key rate-limiting only works if every caller presents a key. |
+| 3 | `PROVER_MODE` | `network` (mainnet) / `cpu` (testing) | `network` mode requires a funded `NETWORK_PRIVATE_KEY`; `cpu` mode runs proofs locally and is fine for staging. |
+| 4 | `KAGE_CORS_ORIGINS` | Comma-separated allowlist of frontend origins | The API enforces this allowlist in [packages/api/src/index.ts](../packages/api/src/index.ts). Leaving it unset rejects all browsers; setting it to `*` defeats the purpose. List exact origins. |
+| 5 | `PROVER_RATE_PER_SECOND` / `PROVER_RATE_BURST` | Sized to your traffic | Defaults (10 rps / 30 burst) are conservative. Measure peak legitimate traffic first; see [Rate-limit tuning](#rate-limit-tuning). |
+| 6 | `SOLANA_RPC_URL` | A paid / private RPC, not the public devnet endpoint | Public endpoints rate-limit aggressively and will degrade your latency. |
+| 7 | `.env` files | Never on the host filesystem in production | Inject secrets via your platform's secret manager (Railway, Fly, Vault, etc.) so they don't survive a disk image leak. |
+
+### Quick smoke test
+
+After deploying, confirm the prover rejects unauthenticated requests:
+
+```bash
+curl -i https://prover.kage.internal/prove/reputation -d '{}'
+# expect 401 Unauthorized — if you see 200/429, PROVER_ENFORCE_AUTH is off
+```
+
+And confirm the API rejects disallowed origins:
+
+```bash
+curl -i -H 'Origin: https://evil.example' https://api.kage.internal/health
+# expect no Access-Control-Allow-Origin header in the response
+```
+
+If either check fails, **stop and fix before opening traffic**.
+
+---
+
 ## Prover API key rotation
 
 Scenario: you suspect `PROVER_API_KEY` has leaked, or you are rotating on a

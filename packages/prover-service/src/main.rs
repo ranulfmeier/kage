@@ -564,6 +564,39 @@ fn derive_memory_hash(c: &MemoryCommitment) -> u64 {
     h
 }
 
+// ── Router builder (shared between `main` and tests) ─────────────────────────
+
+fn build_app(state: AppState, rate_per_second: u64, rate_burst: u32) -> Router {
+    let governor_config = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(rate_per_second)
+            .burst_size(rate_burst)
+            .key_extractor(ApiKeyExtractor)
+            .finish()
+            .expect("invalid governor config"),
+    );
+
+    let protected_routes = Router::new()
+        .route("/prove/reputation", post(prove_reputation))
+        .route("/prove/memory", post(prove_memory))
+        .route("/prove/task", post(prove_task))
+        .route("/proof/{proof_id}", get(get_proof))
+        .layer(GovernorLayer {
+            config: governor_config,
+        })
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+
+    Router::new()
+        .route("/health", get(health))
+        .merge(protected_routes)
+        .layer(tower_http::cors::CorsLayer::permissive())
+        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .with_state(state)
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -646,34 +679,7 @@ async fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(30);
 
-    let governor_config = Arc::new(
-        GovernorConfigBuilder::default()
-            .per_second(rate_per_second)
-            .burst_size(rate_burst)
-            .key_extractor(ApiKeyExtractor)
-            .finish()
-            .expect("invalid governor config"),
-    );
-
-    let protected_routes = Router::new()
-        .route("/prove/reputation", post(prove_reputation))
-        .route("/prove/memory", post(prove_memory))
-        .route("/prove/task", post(prove_task))
-        .route("/proof/{proof_id}", get(get_proof))
-        .layer(GovernorLayer {
-            config: governor_config,
-        })
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ));
-
-    let app = Router::new()
-        .route("/health", get(health))
-        .merge(protected_routes)
-        .layer(tower_http::cors::CorsLayer::permissive())
-        .layer(tower_http::trace::TraceLayer::new_for_http())
-        .with_state(state);
+    let app = build_app(state, rate_per_second, rate_burst);
 
     let port: u16 = env::var("PROVER_PORT")
         .ok()
@@ -685,4 +691,186 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use http_body_util::BodyExt as _;
+    use tower::ServiceExt;
+
+    fn test_state(api_key: Option<&str>) -> AppState {
+        AppState {
+            proofs: Arc::new(DashMap::new()),
+            prover_mode: Arc::new("cpu".to_string()),
+            api_key: api_key.map(|k| Arc::new(k.to_string())),
+            // Empty ELFs are fine: tests never reach the spawned prove task,
+            // they assert on the synchronous response from the auth + routing
+            // layers. If a future test triggers /prove/* we'd need real ELFs.
+            reputation_elf: Arc::new(vec![]),
+            memory_elf: Arc::new(vec![]),
+            task_elf: Arc::new(vec![]),
+        }
+    }
+
+    async fn body_json(resp: axum::response::Response) -> serde_json::Value {
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn health_is_open_and_returns_service_metadata() {
+        let app = build_app(test_state(Some("any-key")), 1000, 1000);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        assert_eq!(json["service"], "kage-prover-service");
+        assert_eq!(json["mode"], "cpu");
+        assert!(json["stats"]["total_proofs"].is_number());
+    }
+
+    #[tokio::test]
+    async fn protected_route_rejects_missing_api_key() {
+        let app = build_app(test_state(Some("expected-key")), 1000, 1000);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/proof/does-not-exist")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn protected_route_rejects_wrong_api_key() {
+        let app = build_app(test_state(Some("expected-key")), 1000, 1000);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/proof/does-not-exist")
+                    .header("x-api-key", "wrong-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn protected_route_accepts_correct_api_key_and_routes_through() {
+        let app = build_app(test_state(Some("expected-key")), 1000, 1000);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/proof/does-not-exist")
+                    .header("x-api-key", "expected-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Auth passed → handler runs → 404 because the proof_id is unknown.
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let json = body_json(resp).await;
+        assert_eq!(json["error"], "Proof not found");
+    }
+
+    #[tokio::test]
+    async fn protected_route_is_open_when_no_api_key_configured() {
+        // Dev mode: no API key set, no header required.
+        let app = build_app(test_state(None), 1000, 1000);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/proof/does-not-exist")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn api_key_extractor_buckets_keys_separately_and_falls_back_to_anonymous() {
+        let extractor = ApiKeyExtractor;
+
+        let with_key: Request<()> = Request::builder()
+            .header("x-api-key", "alice")
+            .body(())
+            .unwrap();
+        assert_eq!(extractor.extract(&with_key).unwrap(), "alice");
+
+        let other_key: Request<()> = Request::builder()
+            .header("x-api-key", "bob")
+            .body(())
+            .unwrap();
+        assert_eq!(extractor.extract(&other_key).unwrap(), "bob");
+
+        let none: Request<()> = Request::builder().body(()).unwrap();
+        assert_eq!(extractor.extract(&none).unwrap(), "__anonymous__");
+    }
+
+    #[tokio::test]
+    async fn unknown_route_returns_404() {
+        let app = build_app(test_state(None), 1000, 1000);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/does-not-exist")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn derive_memory_hash_is_deterministic_and_collision_resistant_for_distinct_inputs() {
+        let a = MemoryCommitment {
+            ciphertext_hash: "abc".into(),
+            agent_did: "did:sol:Alice".into(),
+            stored_at: 1000,
+            memory_type: "knowledge".into(),
+        };
+        let a_repeat = MemoryCommitment {
+            ciphertext_hash: "abc".into(),
+            agent_did: "did:sol:Alice".into(),
+            stored_at: 1000,
+            memory_type: "knowledge".into(),
+        };
+        let b = MemoryCommitment {
+            ciphertext_hash: "abc".into(),
+            agent_did: "did:sol:Alice".into(),
+            stored_at: 1001, // different timestamp
+            memory_type: "knowledge".into(),
+        };
+
+        assert_eq!(derive_memory_hash(&a), derive_memory_hash(&a_repeat));
+        assert_ne!(derive_memory_hash(&a), derive_memory_hash(&b));
+    }
+
 }

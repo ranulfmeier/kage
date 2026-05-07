@@ -45,14 +45,9 @@ dist/
 build/
 .pytest_cache/
 
-# Test / scratch files
+# Scratch files (one-off scripts; real tests live in *.test.ts / *.spec.ts)
 test-*.ts
 test-*.mjs
-*.test.ts
-*.spec.ts
 
-# Demo / marketing assets
-demos/
-
-# Internal planning
-roadmap.md
+# Demo / marketing assets (uncomment if demos contain secrets you don't want public)
+# demos/

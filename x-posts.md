@@ -398,3 +398,113 @@ Just: rate limits, mandatory auth, test mode, threat model, deploy guide.
 Because the thing that kills privacy protocols isn't a missing feature — it's an unauthenticated prover endpoint, a test suite nobody can run, and a threat model nobody wrote down.
 
 Boring on the timeline. Load-bearing for mainnet.
+
+---
+
+## 6. PRE-MAINNET HARDENING DROP
+
+> Posted after the audit pass on 2026-05-07. Six concrete fixes from a single review session — most of them invisible until they save you.
+
+---
+
+### Post 21 — The Audit That Found A Silent Test Hole
+
+Reviewed Kage end-to-end before mainnet prep.
+
+The most embarrassing finding: `*.test.ts` and `*.spec.ts` were in `.gitignore`.
+
+13 test files lived on disk. 3 were tracked. Our CI green light meant ~25% of what we thought we were running.
+
+Fixed today. The other 10 files now exist where everyone can see them.
+
+---
+
+### Post 22 — Hardening Drop, In One Tweet
+
+Today's pre-mainnet pass:
+
+→ Test files no longer silently gitignored
+→ README warns about memo-trail consistency
+→ OPERATIONS.md has a real production hardening checklist
+→ +7 SDK tests (Arweave adapter)
+→ +8 Rust tests (prover auth + routing)
+→ Test count: 107 → 122
+
+Not new features. Fewer silent footguns.
+
+---
+
+### Post 23 — Memo Trail Honesty Check 🧵
+
+Some Kage modules — delegation, team-vault, group-vault, reasoning, messaging — write to an SPL Memo log instead of contract state.
+
+It's a real audit trail. It's also best-effort: if the memo TX fails (RPC blip, fee issue), the SDK warns and continues with local state.
+
+We added a callout in the README so nobody mistakes "memo evidence" for "contract enforcement". MODULE-REALITY.md has had this for a while; it just needed to be on the front door.
+
+---
+
+### Post 24 — Production Hardening Checklist, OPERATIONS.md
+
+Added a top-of-page checklist for OPERATIONS.md. Seven settings the prover and API will *technically* run without — but shouldn't.
+
+PROVER_ENFORCE_AUTH=true. PROVER_API_KEY 32+ bytes. KAGE_CORS_ORIGINS allowlist. Paid RPC. Secrets via the platform's manager, not a `.env` on disk.
+
+Plus two smoke-test curls so you can confirm the prover rejects unauthenticated requests *before* you open traffic.
+
+If you're standing up a Kage deployment, this is the section that matters.
+
+---
+
+### Post 25 — Test Coverage, Honestly
+
+Two new test suites today:
+
+`tests/src/arweave.test.ts` — 7 tests covering gateway selection (devnet → gateway.irys.xyz, mainnet → arweave.net), download paths, error propagation. Network-free, sub-100ms.
+
+`packages/prover-service/src/main.rs` (inline `#[cfg(test)]`) — 8 tests covering health, auth middleware (missing/wrong/correct keys), the `ApiKeyExtractor` rate-limit bucket logic, and `derive_memory_hash` determinism.
+
+Both wired into CI. Both refused to compile-pass with the bugs they would have caught.
+
+---
+
+### Post 26 — What Reviewing Your Own Project Looks Like
+
+Spent today doing a structural review of Kage — README, every package, OPERATIONS, gitignore, test coverage.
+
+Found:
+- A gitignore pattern excluding 80% of our test files
+- A production checklist that lived only in rotation procedures
+- A memo-trail warning buried four headings deep
+
+Nothing dramatic. All things you'd find in a quiet 2-hour pass with a fresh pair of eyes.
+
+The lesson isn't "we missed stuff". It's: every protocol does. Schedule the pass.
+
+---
+
+### Post 27 — Why We Don't Mock The Prover
+
+While writing prover-service tests, deliberate scope choice: zero mocks of SP1.
+
+The tests exercise auth, routing, the `x-api-key` extractor, the `derive_memory_hash` FNV-1a function — every deterministic surface. They never call ProverClient.
+
+If a future regression hides behind real proof generation, that's an integration test against the Succinct Network, not a unit test in CI. Different layer, different cadence.
+
+Fast tests catch fast bugs. Slow tests catch real ones. Don't conflate them.
+
+---
+
+### Post 28 — Mainnet Status
+
+Pre-mainnet checklist after today:
+
+→ Anchor program: production-grade, has_one + Signer enforced ✅
+→ SP1 verifier: deployed pattern documented, ~200K CU ✅
+→ Prover service: per-key rate limit + mandatory auth (when configured) ✅
+→ OPERATIONS runbook: rotation, incident response, hardening checklist ✅
+→ Test coverage: 122 passing, target 150+ before flip 🟡
+→ Mainnet RPC + funded wallets 🔲
+→ External security review 🔲
+
+Not there yet. Closer than yesterday.
